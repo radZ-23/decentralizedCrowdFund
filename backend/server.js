@@ -5,29 +5,51 @@ const cors = require("cors");
 const multer = require("multer");
 const axios = require("axios");
 const { ethers } = require("ethers");
+const path = require("path");
+
+// Import routes
+const authRoutes = require("./routes/auth");
+
+// Import middleware
+const { auditLogMiddleware } = require("./middleware/auth");
+
+// Import models
+const Campaign = require("./models/Campaign");
+const User = require("./models/User");
+const RiskAssessment = require("./models/RiskAssessment");
+const Donation = require("./models/Donation");
+const SmartContract = require("./models/SmartContract");
+const AuditLog = require("./models/AuditLog");
 
 const app = express();
+
+// Middleware
 app.use(cors());
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.use(auditLogMiddleware);
 
-mongoose.connect("mongodb://127.0.0.1:27017/medtrust");
+// MongoDB Connection
+const mongoUri = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/medtrust";
+mongoose
+  .connect(mongoUri)
+  .then(() => console.log("✅ MongoDB connected"))
+  .catch((err) => console.error("❌ MongoDB connection error:", err));
 
-const upload = multer({ dest: "../uploads/" });
+// File upload configuration
+const uploadsDir = path.join(__dirname, "../uploads");
+const upload = multer({ 
+  dest: uploadsDir,
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
+});
 
-// Models (simplified)
-const Campaign = mongoose.model(
-  "Campaign",
-  new mongoose.Schema({
-    title: String,
-    patient: String,
-    hospital: String,
-    riskScore: Number,
-    contractAddress: String,
-    documentsHash: String,
-    status: { type: String, default: "Pending" },
-    createdAt: { type: Date, default: Date.now },
-  }),
-);
+// Routes
+app.use("/api/auth", authRoutes);
+
+// Health check
+app.get("/api/health", (req, res) => {
+  res.json({ status: "✅ Backend is running", timestamp: new Date() });
+});
 
 // AI Verification Route
 app.post("/api/verify", upload.array("documents"), async (req, res) => {
@@ -47,7 +69,23 @@ app.post("/api/verify", upload.array("documents"), async (req, res) => {
   }
 });
 
-// Create Campaign + Deploy Contract (demo uses local Hardhat first)
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).json({ error: `Server error: ${err.message}` });
+});
+
+// 404 handling
+app.use((req, res) => {
+  res.status(404).json({ error: "Route not found" });
+});
+
+// Start server
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => {
+  console.log(`🚀 Backend server running on port ${PORT}`);
+  console.log(`📍 API URL: http://localhost:${PORT}`);
+});
 app.post("/api/campaigns", async (req, res) => {
   const { title, patient, hospital, riskScore } = req.body;
 
