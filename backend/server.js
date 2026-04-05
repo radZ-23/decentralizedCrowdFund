@@ -9,9 +9,13 @@ const authRoutes = require("./routes/auth");
 const campaignsRoutes = require("./routes/campaigns");
 const donationsRoutes = require("./routes/donations");
 const milestonesRoutes = require("./routes/milestones");
+const adminRoutes = require("./routes/admin");
 
 // Import middleware
 const { auditLogMiddleware } = require("./middleware/auth");
+
+// Import indexer daemon
+const { startIndexer } = require("./utils/indexer");
 
 // Import models
 const Campaign = require("./models/Campaign");
@@ -36,7 +40,10 @@ app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 const mongoUri = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/medtrust";
 mongoose
   .connect(mongoUri)
-  .then(() => console.log("✅ MongoDB connected"))
+  .then(() => {
+    console.log("✅ MongoDB connected");
+    startIndexer(30); // Poll every 30 seconds
+  })
   .catch((err) => {
     console.warn("⚠️  MongoDB connection pending:", err.message);
     console.log("📝 Server will start anyway - some features may not work until MongoDB is available");
@@ -45,6 +52,9 @@ mongoose
 // Routes
 app.use("/api/auth", authRoutes);
 app.use("/api/campaigns", campaignsRoutes);
+app.use("/api/donations", donationsRoutes);
+app.use("/api/milestones", milestonesRoutes);
+app.use("/api/admin", adminRoutes);
 
 // Health check
 app.get("/api/health", (req, res) => {
