@@ -4,6 +4,7 @@ const Campaign = require('../models/Campaign');
 const AuditLog = require('../models/AuditLog');
 const { authMiddleware, roleMiddleware } = require('../middleware/auth');
 const { ethers } = require('ethers');
+const { getContractInstance } = require('../utils/contractUtils');
 
 const router = express.Router();
 
@@ -39,18 +40,29 @@ router.post('/', authMiddleware, roleMiddleware(['donor']), async (req, res) => 
 
     // Verify transaction on blockchain
     const provider = new ethers.JsonRpcProvider(process.env.RPC_URL || 'http://127.0.0.1:8545');
+    let gasUsed = null;
+    let blockNumber = null;
 
     try {
-      const tx = await provider.getTransaction(transactionHash);
-      if (!tx) {
-        return res.status(400).json({
-          error: 'Transaction not found on blockchain. Please wait for confirmation.'
-        });
+      // Wait for transaction to be mined
+      const receipt = await provider.getTransactionReceipt(transactionHash);
+
+      if (!receipt) {
+        // Transaction might still be pending
+        const tx = await provider.getTransaction(transactionHash);
+        if (!tx) {
+          return res.status(400).json({
+            error: 'Transaction not found on blockchain. Please wait for confirmation.'
+          });
+        }
+        // Transaction is pending - wait for it
+        await provider.waitForTransaction(transactionHash);
       }
 
-      // Wait for transaction confirmation
-      const receipt = await provider.getTransactionReceipt(transactionHash);
-      if (!receipt || receipt.status === 0) {
+      // Get the final receipt
+      const finalReceipt = await provider.getTransactionReceipt(transactionHash);
+
+      if (!finalReceipt || finalReceipt.status === 0) {
         return res.status(400).json({
           error: 'Transaction failed on blockchain'
         });
@@ -58,11 +70,18 @@ router.post('/', authMiddleware, roleMiddleware(['donor']), async (req, res) => 
 
       // Verify transaction was to the correct contract
       if (campaign.smartContractAddress &&
-          tx.to?.toLowerCase() !== campaign.smartContractAddress.toLowerCase()) {
+          finalReceipt.to?.toLowerCase() !== campaign.smartContractAddress.toLowerCase()) {
         return res.status(400).json({
           error: 'Transaction was not sent to the correct campaign contract'
         });
       }
+
+      // Get transaction details for logging
+      const txDetails = await provider.getTransaction(transactionHash);
+
+      // Store additional blockchain info
+      gasUsed = finalReceipt.gasUsed.toString();
+      blockNumber = finalReceipt.blockNumber;
 
     } catch (txError) {
       console.error('Transaction verification error:', txError.message);
@@ -80,6 +99,8 @@ router.post('/', authMiddleware, roleMiddleware(['donor']), async (req, res) => 
       donorMessage: donorMessage || null,
       anonymous: anonymous || false,
       status: 'locked_in_escrow',
+      gasUsed,
+      blockNumber,
       escrowDetails: {
         contractAddress: campaign.smartContractAddress,
         escrowLockedAt: new Date(),
@@ -243,6 +264,110 @@ router.get('/campaign/:campaignId', async (req, res) => {
     res.json({ donations: publicDonations });
   } catch (error) {
     res.status(500).json({ error: `Failed to fetch campaign donations: ${error.message}` });
+  }
+});
+
+// @route   POST /api/donations/:campaignId/donate-direct
+// @desc    Donate directly via smart contract (backend handles tx)
+// @access  Private (Donor role)
+router.post('/:campaignId/donate-direct', authMiddleware, roleMiddleware(['donor']), async (req, res) => {
+  try {
+    const { amount } = req.body;
+
+    if (!amount || parseFloat(amount) <= 0) {
+      return res.status(400).json({ error: 'Valid donation amount is required' });
+    }
+
+    const campaign = await Campaign.findById(req.params.campaignId);
+    if (!campaign) {
+      return res.status(404).json({ error: 'Campaign not found' });
+    }
+
+    if (campaign.status !== 'active') {
+      return res.status(400).json({ error: 'Campaign is not active for donations' });
+    }
+
+    if (!campaign.smartContractAddress) {
+      return res.status(400).json({
+        error: 'Smart contract not deployed yet. Please wait for admin to deploy contract.'
+      });
+    }
+
+    // Get contract instance
+    const contract = getContractInstance(campaign.smartContractAddress);
+
+    // Parse amount to wei
+    const donationAmount = ethers.parseEther(amount.toString());
+
+    console.log(`Processing donation of ${amount} ETH to campaign ${campaign._id}`);
+
+    // Call donate function on smart contract
+    const tx = await contract.donate({
+      value: donationAmount,
+    });
+
+    console.log('Waiting for donation transaction to confirm...');
+    const receipt = await tx.wait();
+
+    console.log(`Donation confirmed in tx: ${receipt.hash}`);
+
+    // Create donation record
+    const donation = await Donation.create({
+      campaignId: campaign._id,
+      donorId: req.user.userId,
+      amount: parseFloat(amount),
+      transactionHash: receipt.hash,
+      status: 'locked_in_escrow',
+      gasUsed: receipt.gasUsed.toString(),
+      blockNumber: receipt.blockNumber,
+      escrowDetails: {
+        contractAddress: campaign.smartContractAddress,
+        escrowLockedAt: new Date(),
+      },
+    });
+
+    // Update campaign raised amount
+    campaign.raisedAmount += parseFloat(amount);
+    await campaign.save();
+
+    // Create audit log
+    await AuditLog.create({
+      userId: req.user.userId,
+      action: 'donation_created',
+      entityType: 'donation',
+      entityId: donation._id,
+      details: {
+        campaignId: campaign._id,
+        amount: parseFloat(amount),
+        transactionHash: receipt.hash,
+        campaignTitle: campaign.title,
+      },
+      status: 'success',
+    });
+
+    res.json({
+      message: 'Donation successful!',
+      donation,
+      transactionHash: receipt.hash,
+      blockNumber: receipt.blockNumber,
+    });
+
+  } catch (error) {
+    console.error('Direct donation error:', error);
+
+    if (error.message.includes('insufficient funds')) {
+      return res.status(400).json({
+        error: 'Insufficient funds in wallet for this donation',
+      });
+    }
+
+    if (error.message.includes('user rejected')) {
+      return res.status(400).json({
+        error: 'Transaction was rejected by user',
+      });
+    }
+
+    res.status(500).json({ error: `Failed to process donation: ${error.message}` });
   }
 });
 
