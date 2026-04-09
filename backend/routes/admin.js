@@ -6,6 +6,9 @@ const Donation = require('../models/Donation');
 const AuditLog = require('../models/AuditLog');
 const SmartContract = require('../models/SmartContract');
 const { authMiddleware, roleMiddleware } = require('../middleware/auth');
+const { decryptFile } = require('../utils/encryption');
+const fs = require('fs');
+const path = require('path');
 
 const router = express.Router();
 
@@ -341,7 +344,16 @@ router.delete('/users/:id', async (req, res) => {
 // @access  Private (Admin only)
 router.get('/audit-logs', async (req, res) => {
   try {
-    const { entityType, entityId, action, userId, startDate, endDate, limit = 100 } = req.query;
+    const {
+      entityType,
+      entityId,
+      action,
+      userId,
+      startDate,
+      endDate,
+      limit = 100,
+      page = 1,
+    } = req.query;
 
     const filter = {};
     if (entityType) filter.entityType = entityType;
@@ -354,12 +366,26 @@ router.get('/audit-logs', async (req, res) => {
       if (endDate) filter.createdAt.$lte = new Date(endDate);
     }
 
-    const logs = await AuditLog.find(filter)
-      .populate('userId', 'name email role')
-      .sort({ createdAt: -1 })
-      .limit(parseInt(limit));
+    const safeLimit = Math.min(500, Math.max(1, parseInt(limit)));
+    const safePage = Math.max(1, parseInt(page));
+    const skip = (safePage - 1) * safeLimit;
 
-    res.json({ auditLogs: logs });
+    const [total, logs] = await Promise.all([
+      AuditLog.countDocuments(filter),
+      AuditLog.find(filter)
+        .populate('userId', 'name email role')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(safeLimit),
+    ]);
+
+    res.json({
+      auditLogs: logs,
+      page: safePage,
+      limit: safeLimit,
+      total,
+      totalPages: Math.ceil(total / safeLimit),
+    });
   } catch (error) {
     res.status(500).json({ error: `Failed to fetch audit logs: ${error.message}` });
   }
@@ -416,11 +442,47 @@ router.get('/contracts', async (req, res) => {
         path: 'campaignId',
         select: 'title status patientId hospitalId'
       })
-      .sort({ createdAt: -1 });
+      .sort({ deployedAt: -1, _id: -1 });
 
     res.json({ contracts });
   } catch (error) {
     res.status(500).json({ error: `Failed to fetch contracts: ${error.message}` });
+  }
+});
+
+// @route   GET /api/admin/campaigns/:id/documents/:docIndex
+// @desc    View decrypted campaign documents (admin only)
+// @access  Private (Admin only)
+router.get('/campaigns/:id/documents/:docIndex', async (req, res) => {
+  try {
+    const campaign = await Campaign.findById(req.params.id);
+    if (!campaign) {
+      return res.status(404).json({ error: 'Campaign not found' });
+    }
+
+    const docIndex = parseInt(req.params.docIndex);
+    if (!campaign.documents || docIndex >= campaign.documents.length) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+
+    const doc = campaign.documents[docIndex];
+    const filePath = path.join(__dirname, '../../', doc.url);
+
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ error: 'Document file not found' });
+    }
+
+    // Decrypt and serve the file
+    const decryptedBuffer = decryptFile(filePath);
+    const fileName = path.basename(doc.url);
+    const contentType = fileName.endsWith('.pdf') ? 'application/pdf' : 'image/jpeg';
+
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Disposition', `inline; filename="${fileName}"`);
+    res.send(decryptedBuffer);
+  } catch (error) {
+    console.error('Document decryption error:', error);
+    res.status(500).json({ error: `Failed to decrypt document: ${error.message}` });
   }
 });
 

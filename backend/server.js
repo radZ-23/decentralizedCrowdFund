@@ -14,6 +14,8 @@ const campaignsRoutes = require("./routes/campaigns");
 const donationsRoutes = require("./routes/donations");
 const milestonesRoutes = require("./routes/milestones");
 const adminRoutes = require("./routes/admin");
+const analyticsRoutes = require("./routes/analytics");
+const hospitalsRoutes = require("./routes/hospitals");
 
 // Import middleware
 const { auditLogMiddleware } = require("./middleware/auth");
@@ -43,7 +45,7 @@ app.use(auditLogMiddleware);
 // Rate limiting — 100 requests per 15 min per IP
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 100,
+  max: 100000,
   message: { error: 'Too many requests, please try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
@@ -72,6 +74,8 @@ app.use("/api/campaigns", campaignsRoutes);
 app.use("/api/donations", donationsRoutes);
 app.use("/api/milestones", milestonesRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/analytics", analyticsRoutes);
+app.use("/api/hospitals", hospitalsRoutes);
 
 // Health check
 app.get("/api/health", (req, res) => {
