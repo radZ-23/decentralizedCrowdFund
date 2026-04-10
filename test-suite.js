@@ -4,7 +4,7 @@
  * Date: March 18, 2026
  */
 
-const API_URL = 'http://localhost:5001/api';
+const API_URL = 'http://localhost:5000/api';
 const VALID_PASSWORD = 'TestPass123456';
 
 // Test Data
