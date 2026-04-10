@@ -60,6 +60,16 @@ pnpm-debug.log*
 .Spotlight-V100
 .Trashes
 ehthumbs.db
-Thumbs.dbuploads/
+Thumbs.db
+
+# Uploads
+uploads/
+
+# Database
+data/db/
+
+# Frontend
 frontend/.env
 frontend/tsconfig.tsbuildinfo
+
+mongo.log
