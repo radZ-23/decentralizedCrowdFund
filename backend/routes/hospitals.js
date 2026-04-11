@@ -1,10 +1,26 @@
 const express = require('express');
 const User = require('../models/User');
+const Campaign = require('../models/Campaign');
+const Donation = require('../models/Donation');
+const SmartContract = require('../models/SmartContract');
 const AuditLog = require('../models/AuditLog');
 const { authMiddleware, roleMiddleware } = require('../middleware/auth');
 const axios = require('axios');
+const { getIO } = require('../utils/socket');
+const { sendHospitalAssignedEmail } = require('../utils/emailService');
+const logger = require('../utils/logger');
 
 const router = express.Router();
+
+// Get IO instance for emitting events
+const getIoInstance = () => {
+  try {
+    return getIO();
+  } catch (e) {
+    logger.warn('Socket.IO not initialized');
+    return null;
+  }
+};
 
 // @route   POST /api/hospitals/verify-license
 // @desc    Verify hospital license against registry (AI service)
@@ -263,6 +279,315 @@ router.delete('/:id', authMiddleware, roleMiddleware(['admin']), async (req, res
     res.json({ message: 'Hospital account deactivated successfully' });
   } catch (error) {
     res.status(500).json({ error: `Failed to deactivate hospital: ${error.message}` });
+  }
+});
+
+// @route   GET /api/hospitals/my-campaigns
+// @desc    Get all campaigns assigned to current hospital
+// @access  Private (Hospital only)
+router.get('/my-campaigns', authMiddleware, roleMiddleware(['hospital']), async (req, res) => {
+  try {
+    const hospitalId = req.user.userId;
+
+    const campaigns = await Campaign.find({ hospitalId })
+      .populate('patientId', 'name email')
+      .populate('riskAssessmentId')
+      .sort({ createdAt: -1 });
+
+    // Get statistics
+    const stats = await Campaign.aggregate([
+      { $match: { hospitalId: new require('mongoose').Types.ObjectId(hospitalId) } },
+      {
+        $group: {
+          _id: '$status',
+          count: { $sum: 1 },
+          totalRaised: { $sum: { $ifNull: ['$raisedAmount', 0] } },
+          totalTarget: { $sum: { $ifNull: ['$targetAmount', 0] } },
+        },
+      },
+    ]);
+
+    const statusBreakdown = {};
+    stats.forEach(s => {
+      statusBreakdown[s._id] = {
+        count: s.count,
+        totalRaised: s.totalRaised,
+        totalTarget: s.totalTarget,
+      };
+    });
+
+    res.json({
+      campaigns,
+      stats: {
+        total: campaigns.length,
+        byStatus: statusBreakdown,
+      },
+    });
+  } catch (error) {
+    logger.error(`Hospital campaigns fetch error: ${error.message}`, error);
+    res.status(500).json({ error: `Failed to fetch hospital campaigns: ${error.message}` });
+  }
+});
+
+// @route   GET /api/hospitals/campaign/:id
+// @desc    Get single campaign details for hospital
+// @access  Private (Hospital only)
+router.get('/campaign/:id', authMiddleware, roleMiddleware(['hospital']), async (req, res) => {
+  try {
+    const campaign = await Campaign.findById(req.params.id)
+      .populate('patientId', 'name email')
+      .populate('riskAssessmentId')
+      .populate({
+        path: 'donations',
+        model: Donation,
+        populate: { path: 'donorId', select: 'name' },
+      });
+
+    if (!campaign) {
+      return res.status(404).json({ error: 'Campaign not found' });
+    }
+
+    // Check if hospital is assigned to this campaign
+    if (campaign.hospitalId?.toString() !== req.user.userId) {
+      return res.status(403).json({ error: 'Not authorized to view this campaign' });
+    }
+
+    // Get smart contract details if available
+    let smartContract = null;
+    if (campaign.smartContractAddress) {
+      smartContract = await SmartContract.findOne({ campaignId: campaign._id });
+    }
+
+    res.json({
+      campaign,
+      smartContract,
+    });
+  } catch (error) {
+    logger.error(`Hospital campaign details fetch error: ${error.message}`, error);
+    res.status(500).json({ error: `Failed to fetch campaign details: ${error.message}` });
+  }
+});
+
+// @route   POST /api/hospitals/assign-campaign
+// @desc    Assign a hospital to a campaign (Admin only)
+// @access  Private (Admin only)
+router.post('/assign-campaign', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
+  try {
+    const { campaignId, hospitalId } = req.body;
+
+    if (!campaignId || !hospitalId) {
+      return res.status(400).json({ error: 'Campaign ID and Hospital ID are required' });
+    }
+
+    const campaign = await Campaign.findById(campaignId).populate('patientId');
+    if (!campaign) {
+      return res.status(404).json({ error: 'Campaign not found' });
+    }
+
+    const hospital = await User.findById(hospitalId);
+    if (!hospital || hospital.role !== 'hospital') {
+      return res.status(400).json({ error: 'Invalid hospital' });
+    }
+
+    if (!hospital.profile.verified) {
+      return res.status(400).json({ error: 'Hospital must be verified before assignment' });
+    }
+
+    // Assign hospital to campaign
+    campaign.hospitalId = hospitalId;
+    await campaign.save();
+
+    // Create audit log
+    await AuditLog.create({
+      userId: req.user.userId,
+      action: 'hospital_assigned_to_campaign',
+      entityType: 'campaign',
+      entityId: campaign._id,
+      details: {
+        campaignTitle: campaign.title,
+        hospitalName: hospital.hospitalName,
+        hospitalEmail: hospital.email,
+      },
+      status: 'success',
+    });
+
+    // Send email notification to hospital
+    if (hospital.email) {
+      await sendHospitalAssignedEmail(
+        hospital.email,
+        campaign.title,
+        campaign.patientId?.name || 'Patient'
+      );
+    }
+
+    // Emit socket event
+    const io = getIoInstance();
+    if (io) {
+      io.to(`campaign:${campaignId}`).emit('hospital:assigned', {
+        campaignId,
+        hospitalId,
+        hospitalName: hospital.hospitalName,
+      });
+      io.to(`user:${hospitalId}`).emit('campaign:assigned', {
+        campaignId: campaign._id,
+        campaignTitle: campaign.title,
+        assignedAt: new Date(),
+      });
+      logger.info(`Emitted hospital:assigned event for campaign ${campaignId}`);
+    }
+
+    res.json({
+      message: 'Hospital assigned to campaign successfully',
+      campaign,
+    });
+  } catch (error) {
+    logger.error(`Hospital assignment error: ${error.message}`, error);
+    res.status(500).json({ error: `Failed to assign hospital: ${error.message}` });
+  }
+});
+
+// @route   POST /api/hospitals/campaign/:id/milestone-confirm
+// @desc    Hospital confirms milestone completion
+// @access  Private (Hospital only)
+router.post('/campaign/:id/milestone-confirm', authMiddleware, roleMiddleware(['hospital']), async (req, res) => {
+  try {
+    const { milestoneIndex } = req.body;
+
+    if (milestoneIndex === undefined || milestoneIndex < 0) {
+      return res.status(400).json({ error: 'Milestone index is required' });
+    }
+
+    const campaign = await Campaign.findById(req.params.id);
+    if (!campaign) {
+      return res.status(404).json({ error: 'Campaign not found' });
+    }
+
+    // Check if hospital is assigned to this campaign
+    if (campaign.hospitalId?.toString() !== req.user.userId) {
+      return res.status(403).json({ error: 'Not authorized for this campaign' });
+    }
+
+    if (!campaign.milestones || campaign.milestones.length === 0) {
+      return res.status(400).json({ error: 'No milestones defined' });
+    }
+
+    if (milestoneIndex >= campaign.milestones.length) {
+      return res.status(400).json({ error: 'Invalid milestone index' });
+    }
+
+    const milestone = campaign.milestones[milestoneIndex];
+    if (milestone.status === 'confirmed' || milestone.status === 'released') {
+      return res.status(400).json({ error: 'Milestone already processed' });
+    }
+
+    // Update milestone status
+    milestone.status = 'confirmed';
+    milestone.confirmedAt = new Date();
+    await campaign.save();
+
+    // Create audit log
+    await AuditLog.create({
+      userId: req.user.userId,
+      action: 'hospital_milestone_confirmed',
+      entityType: 'campaign',
+      entityId: campaign._id,
+      details: {
+        milestoneIndex,
+        milestoneDescription: milestone.description,
+        milestoneAmount: milestone.targetAmount,
+      },
+      status: 'success',
+    });
+
+    // Emit socket event
+    const io = getIoInstance();
+    if (io) {
+      io.to(`campaign:${campaign._id}`).emit('milestone:confirmed', {
+        campaignId: campaign._id,
+        milestoneIndex,
+        confirmedAt: new Date(),
+      });
+      logger.info(`Emitted milestone:confirmed event for campaign ${campaign._id}`);
+    }
+
+    res.json({
+      message: 'Milestone confirmed successfully',
+      milestone,
+      campaign,
+    });
+  } catch (error) {
+    logger.error(`Milestone confirmation error: ${error.message}`, error);
+    res.status(500).json({ error: `Failed to confirm milestone: ${error.message}` });
+  }
+});
+
+// @route   GET /api/hospitals/analytics
+// @desc    Get analytics for hospital's campaigns
+// @access  Private (Hospital only)
+router.get('/analytics', authMiddleware, roleMiddleware(['hospital']), async (req, res) => {
+  try {
+    const hospitalId = req.user.userId;
+
+    // Get aggregate statistics
+    const stats = await Campaign.aggregate([
+      { $match: { hospitalId: new require('mongoose').Types.ObjectId(hospitalId) } },
+      {
+        $group: {
+          _id: null,
+          totalCampaigns: { $sum: 1 },
+          activeCampaigns: {
+            $sum: { $cond: [{ $eq: ['$status', 'active'] }, 1, 0] },
+          },
+          completedCampaigns: {
+            $sum: { $cond: [{ $eq: ['$status', 'completed'] }, 1, 0] },
+          },
+          totalRaised: { $sum: { $ifNull: ['$raisedAmount', 0] } },
+          totalTarget: { $sum: { $ifNull: ['$targetAmount', 0] } },
+        },
+      },
+    ]);
+
+    // Get milestone statistics
+    const campaigns = await Campaign.find({ hospitalId });
+    let totalMilestones = 0;
+    let confirmedMilestones = 0;
+    let releasedMilestones = 0;
+
+    campaigns.forEach(c => {
+      if (c.milestones) {
+        totalMilestones += c.milestones.length;
+        c.milestones.forEach(m => {
+          if (m.status === 'confirmed') confirmedMilestones++;
+          if (m.status === 'released') releasedMilestones++;
+        });
+      }
+    });
+
+    // Get recent donations across all campaigns
+    const campaignIds = campaigns.map(c => c._id);
+    const recentDonations = await Donation.find({ campaignId: { $in: campaignIds } })
+      .sort({ createdAt: -1 })
+      .limit(10);
+
+    res.json({
+      stats: stats[0] || {
+        totalCampaigns: 0,
+        activeCampaigns: 0,
+        completedCampaigns: 0,
+        totalRaised: 0,
+        totalTarget: 0,
+      },
+      milestones: {
+        total: totalMilestones,
+        confirmed: confirmedMilestones,
+        released: releasedMilestones,
+        pending: totalMilestones - confirmedMilestones - releasedMilestones,
+      },
+      recentDonations,
+    });
+  } catch (error) {
+    logger.error(`Hospital analytics error: ${error.message}`, error);
+    res.status(500).json({ error: `Failed to fetch hospital analytics: ${error.message}` });
   }
 });
 

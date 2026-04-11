@@ -6,7 +6,7 @@ const User = require('../models/User');
 const { authMiddleware, roleMiddleware } = require('../middleware/auth');
 const { ethers } = require('ethers');
 const { getContractInstance, refundDonationOnChain } = require('../utils/contractUtils');
-const { sendDonationReceivedEmail, sendDonationConfirmationEmail } = require('../utils/emailService');
+const { sendDonationReceivedEmail, sendDonationConfirmationEmail, sendRefundEmail, sendEmail } = require('../utils/emailService');
 const { getIO } = require('../utils/socket');
 const logger = require('../utils/logger');
 
@@ -291,14 +291,14 @@ router.get('/:id', authMiddleware, async (req, res) => {
 // @access  Private (Donor/Admin)
 router.post('/:id/refund', authMiddleware, async (req, res) => {
   try {
-    const donation = await Donation.findById(req.params.id);
+    const donation = await Donation.findById(req.params.id).populate('donorId');
 
     if (!donation) {
       return res.status(404).json({ error: 'Donation not found' });
     }
 
     // Check permission
-    if (req.user.role !== 'admin' && donation.donorId.toString() !== req.user.userId) {
+    if (req.user.role !== 'admin' && donation.donorId._id.toString() !== req.user.userId) {
       return res.status(403).json({ error: 'Not authorized to refund this donation' });
     }
 
@@ -312,23 +312,23 @@ router.post('/:id/refund', authMiddleware, async (req, res) => {
       return res.status(400).json({ error: 'Donation already refunded' });
     }
 
-    const campaign = await Campaign.findById(donation.campaignId);
+    const campaign = await Campaign.findById(donation.campaignId).populate('patientId');
     let onChainResult = null;
 
     // Trigger smart contract refund if applicable
     if (campaign && campaign.smartContractAddress && donation.transactionHash) {
       try {
-        const donorUser = await User.findById(donation.donorId);
-        
+        const donorUser = await User.findById(donation.donorId._id);
+
         if (!donorUser || !donorUser.walletAddress) {
           return res.status(400).json({ error: 'Donor wallet address not found for on-chain refund.' });
         }
-        
+
         const amountInWei = ethers.parseEther(donation.amount.toString());
-        
+
         onChainResult = await refundDonationOnChain(
-          campaign.smartContractAddress, 
-          donorUser.walletAddress, 
+          campaign.smartContractAddress,
+          donorUser.walletAddress,
           amountInWei
         );
       } catch (contractError) {
@@ -339,10 +339,10 @@ router.post('/:id/refund', authMiddleware, async (req, res) => {
 
     // Update status in DB
     donation.status = 'refunded';
+    donation.refundTxHash = onChainResult?.transactionHash || null;
     await donation.save();
 
     // Update campaign raised amount
-    // Note: campaign was fetched above
     if (campaign) {
       campaign.raisedAmount -= donation.amount;
       await campaign.save();
@@ -354,9 +354,20 @@ router.post('/:id/refund', authMiddleware, async (req, res) => {
       action: 'donation_refunded',
       entityType: 'donation',
       entityId: donation._id,
-      details: { amount: donation.amount, reason: 'user_requested' },
+      details: { amount: donation.amount, reason: req.body.reason || 'user_requested' },
       status: 'success',
     });
+
+    // Send refund confirmation email to donor
+    const donor = await User.findById(donation.donorId._id);
+    if (donor?.email) {
+      await sendRefundEmail(
+        donor.email,
+        campaign?.title || 'Campaign',
+        donation.amount,
+        req.body.reason || null
+      );
+    }
 
     // Emit socket events for real-time update
     const io = getIoInstance();
@@ -370,7 +381,7 @@ router.post('/:id/refund', authMiddleware, async (req, res) => {
 
       // Emit to campaign owner's user room
       if (campaign.patientId) {
-        io.to(`user:${campaign.patientId.toString()}`).emit('donation:refunded', {
+        io.to(`user:${campaign.patientId._id.toString()}`).emit('donation:refunded', {
           campaignId: campaign._id,
           donationId: donation._id,
           amount: donation.amount,
@@ -384,6 +395,139 @@ router.post('/:id/refund', authMiddleware, async (req, res) => {
     res.json({ message: 'Refund processed successfully', donation, onChainResult });
   } catch (error) {
     res.status(500).json({ error: `Failed to process refund: ${error.message}` });
+  }
+});
+
+// @route   POST /api/donations/:id/admin-refund
+// @desc    Admin-initiated refund for a donation
+// @access  Private (Admin only)
+router.post('/:id/admin-refund', authMiddleware, async (req, res) => {
+  try {
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const { reason } = req.body;
+    if (!reason) {
+      return res.status(400).json({ error: 'Reason for refund is required' });
+    }
+
+    const donation = await Donation.findById(req.params.id).populate('donorId');
+    if (!donation) {
+      return res.status(404).json({ error: 'Donation not found' });
+    }
+
+    if (donation.status === 'released') {
+      return res.status(400).json({
+        error: 'Cannot refund - funds have already been released'
+      });
+    }
+
+    if (donation.status === 'refunded') {
+      return res.status(400).json({ error: 'Donation already refunded' });
+    }
+
+    const campaign = await Campaign.findById(donation.campaignId).populate('patientId');
+    let onChainResult = null;
+
+    // Trigger smart contract refund if applicable
+    if (campaign && campaign.smartContractAddress && donation.transactionHash) {
+      try {
+        const donorUser = await User.findById(donation.donorId._id);
+
+        if (!donorUser || !donorUser.walletAddress) {
+          return res.status(400).json({ error: 'Donor wallet address not found for on-chain refund.' });
+        }
+
+        const amountInWei = ethers.parseEther(donation.amount.toString());
+
+        onChainResult = await refundDonationOnChain(
+          campaign.smartContractAddress,
+          donorUser.walletAddress,
+          amountInWei
+        );
+      } catch (contractError) {
+        console.error('Smart contract refund error:', contractError);
+        return res.status(500).json({ error: 'Failed to process on-chain refund: ' + contractError.message });
+      }
+    }
+
+    // Update status in DB
+    donation.status = 'refunded';
+    donation.refundTxHash = onChainResult?.transactionHash || null;
+    donation.refundReason = reason;
+    await donation.save();
+
+    // Update campaign raised amount
+    if (campaign) {
+      campaign.raisedAmount -= donation.amount;
+      await campaign.save();
+    }
+
+    // Create audit log
+    await AuditLog.create({
+      userId: req.user.userId,
+      action: 'admin_donation_refunded',
+      entityType: 'donation',
+      entityId: donation._id,
+      details: { amount: donation.amount, reason, adminId: req.user.userId },
+      status: 'success',
+    });
+
+    // Send refund notification email to donor
+    const donor = await User.findById(donation.donorId._id);
+    if (donor?.email) {
+      await sendRefundEmail(donor.email, campaign?.title || 'Campaign', donation.amount, reason);
+    }
+
+    // Notify campaign owner about admin refund
+    if (campaign?.patientId?.email) {
+      await sendEmail({
+        to: campaign.patientId.email,
+        subject: 'Donation Refunded by Admin - MedTrustFund',
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <h2 style="color: #2563eb;">Donation Refunded</h2>
+            <p>An admin has processed a refund for your campaign <strong>"${campaign.title}"</strong>.</p>
+            <div style="background-color: #eff6ff; padding: 16px; border-radius: 8px; margin: 16px 0;">
+              <p style="margin: 0;"><strong>Refund Amount:</strong> ${donation.amount} ETH</p>
+              <p style="margin: 8px 0;"><strong>Reason:</strong> ${reason}</p>
+            </div>
+            <hr style="margin-top: 32px; border: none; border-top: 1px solid #eee;" />
+            <p style="color: #666; font-size: 14px;">MedTrustFund</p>
+          </div>
+        `,
+      });
+    }
+
+    // Emit socket events for real-time update
+    const io = getIoInstance();
+    if (io) {
+      io.to(`campaign:${campaign._id}`).emit('donation:refunded', {
+        campaignId: campaign._id,
+        donationId: donation._id,
+        amount: donation.amount,
+        refundedAt: new Date(),
+        isAdminInitiated: true,
+      });
+
+      if (campaign.patientId) {
+        io.to(`user:${campaign.patientId._id.toString()}`).emit('donation:refunded', {
+          campaignId: campaign._id,
+          donationId: donation._id,
+          amount: donation.amount,
+          refundedAt: new Date(),
+          isAdminInitiated: true,
+        });
+      }
+
+      logger.info(`Emitted admin donation:refunded event for donation ${donation._id}`);
+    }
+
+    res.json({ message: 'Admin refund processed successfully', donation, onChainResult });
+  } catch (error) {
+    logger.error(`Admin refund error: ${error.message}`, error);
+    res.status(500).json({ error: `Failed to process admin refund: ${error.message}` });
   }
 });
 

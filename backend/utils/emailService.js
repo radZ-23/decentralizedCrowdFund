@@ -230,6 +230,146 @@ const sendWelcomeEmail = async (userEmail, userName) => {
   return sendEmail({ to: userEmail, subject, html });
 };
 
+// Refund Processed Email
+const sendRefundEmail = async (donorEmail, campaignTitle, amount, reason) => {
+  const subject = 'Refund Processed - MedTrustFund';
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <h2 style="color: #2563eb;">Refund Processed</h2>
+      <p>Your donation to <strong>"${campaignTitle}"</strong> has been refunded.</p>
+      <div style="background-color: #eff6ff; padding: 16px; border-radius: 8px; margin: 16px 0;">
+        <p style="margin: 0;"><strong>Refund Amount:</strong> ${amount} ETH</p>
+        ${reason ? `<p style="margin: 8px 0;"><strong>Reason:</strong> ${reason}</p>` : ''}
+      </div>
+      <p>The funds have been returned to your wallet. Please allow a few moments for the transaction to be confirmed on the blockchain.</p>
+      <hr style="margin-top: 32px; border: none; border-top: 1px solid #eee;" />
+      <p style="color: #666; font-size: 14px;">MedTrustFund</p>
+    </div>
+  `;
+
+  return sendEmail({ to: donorEmail, subject, html });
+};
+
+// Campaign Target Reached Email
+const sendCampaignTargetReachedEmail = async (userEmail, campaignTitle, targetAmount) => {
+  const subject = '🎉 Campaign Goal Reached! - MedTrustFund';
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <h2 style="color: #16a34a;">🎉 Campaign Goal Reached!</h2>
+      <p>Congratulations! Your campaign <strong>"${campaignTitle}"</strong> has reached its funding goal.</p>
+      <div style="background-color: #f0fdf4; padding: 16px; border-radius: 8px; margin: 16px 0;">
+        <p style="margin: 0; font-size: 18px;"><strong>Target Achieved: ${targetAmount} ETH</strong></p>
+      </div>
+      <p>All milestones are now ready to be executed. The funds will be released according to the milestone schedule.</p>
+      <a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}/my-campaigns"
+         style="display: inline-block; padding: 12px 24px; background-color: #7c3aed; color: white; text-decoration: none; border-radius: 6px; margin-top: 16px;">
+        View Campaign
+      </a>
+      <hr style="margin-top: 32px; border: none; border-top: 1px solid #eee;" />
+      <p style="color: #666; font-size: 14px;">MedTrustFund</p>
+    </div>
+  `;
+
+  return sendEmail({ to: userEmail, subject, html });
+};
+
+// Campaign Expiring Soon Email
+const sendCampaignExpiringEmail = async (userEmail, campaignTitle, daysRemaining) => {
+  const subject = 'Campaign Expiring Soon - MedTrustFund';
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <h2 style="color: #f59e0b;">⏰ Campaign Expiring Soon</h2>
+      <p>Your campaign <strong>"${campaignTitle}"</strong> will expire in <strong>${daysRemaining} days</strong>.</p>
+      <p>If you need more time, please contact support or extend your campaign.</p>
+      <a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}/my-campaigns"
+         style="display: inline-block; padding: 12px 24px; background-color: #7c3aed; color: white; text-decoration: none; border-radius: 6px; margin-top: 16px;">
+        Manage Campaign
+      </a>
+      <hr style="margin-top: 32px; border: none; border-top: 1px solid #eee;" />
+      <p style="color: #666; font-size: 14px;">MedTrustFund</p>
+    </div>
+  `;
+
+  return sendEmail({ to: userEmail, subject, html });
+};
+
+// Hospital Assigned to Campaign Email
+const sendHospitalAssignedEmail = async (hospitalEmail, campaignTitle, patientName) => {
+  const subject = 'New Campaign Assigned - MedTrustFund';
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <h2 style="color: #7c3aed;">New Campaign Assigned</h2>
+      <p>Your hospital has been assigned to a new campaign.</p>
+      <div style="background-color: #f5f3ff; padding: 16px; border-radius: 8px; margin: 16px 0;">
+        <p style="margin: 0;"><strong>Campaign:</strong> ${campaignTitle}</p>
+        <p style="margin: 8px 0;"><strong>Patient:</strong> ${patientName}</p>
+      </div>
+      <p>You will receive funds directly from the smart contract when milestones are confirmed.</p>
+      <a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}/hospital/dashboard"
+         style="display: inline-block; padding: 12px 24px; background-color: #7c3aed; color: white; text-decoration: none; border-radius: 6px; margin-top: 16px;">
+        View Dashboard
+      </a>
+      <hr style="margin-top: 32px; border: none; border-top: 1px solid #eee;" />
+      <p style="color: #666; font-size: 14px;">MedTrustFund</p>
+    </div>
+  `;
+
+  return sendEmail({ to: hospitalEmail, subject, html });
+};
+
+// Bulk Email Sender for Notifications
+const sendBulkEmail = async (recipients, subject, htmlTemplate) => {
+  const results = {
+    success: 0,
+    failed: 0,
+    errors: [],
+  };
+
+  // Process in batches to avoid overwhelming SMTP
+  const batchSize = 50;
+  for (let i = 0; i < recipients.length; i += batchSize) {
+    const batch = recipients.slice(i, i + batchSize);
+    const promises = batch.map(async (email) => {
+      try {
+        const html = typeof htmlTemplate === 'function' ? htmlTemplate(email) : htmlTemplate;
+        await sendEmail({ to: email, subject, html });
+        results.success++;
+      } catch (error) {
+        results.failed++;
+        results.errors.push({ email, error: error.message });
+      }
+    });
+    await Promise.all(promises);
+  }
+
+  return results;
+};
+
+// Weekly Digest Email
+const sendWeeklyDigestEmail = async (userEmail, userName, stats) => {
+  const subject = 'Your Weekly MedTrustFund Update';
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <h2 style="color: #7c3aed;">Weekly Update, ${userName}!</h2>
+      <p>Here's what happened this week:</p>
+      <div style="background-color: #f5f3ff; padding: 16px; border-radius: 8px; margin: 16px 0;">
+        ${stats.newDonations ? `<p style="margin: 8px 0;"><strong>New Donations:</strong> ${stats.newDonations}</p>` : ''}
+        ${stats.amountRaised ? `<p style="margin: 8px 0;"><strong>Amount Raised:</strong> ${stats.amountRaised} ETH</p>` : ''}
+        ${stats.milestonesCompleted ? `<p style="margin: 8px 0;"><strong>Milestones Completed:</strong> ${stats.milestonesCompleted}</p>` : ''}
+        ${stats.campaignViews ? `<p style="margin: 8px 0;"><strong>Campaign Views:</strong> ${stats.campaignViews}</p>` : ''}
+      </div>
+      <a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}/dashboard"
+         style="display: inline-block; padding: 12px 24px; background-color: #7c3aed; color: white; text-decoration: none; border-radius: 6px; margin-top: 16px;">
+        View Full Dashboard
+      </a>
+      <hr style="margin-top: 32px; border: none; border-top: 1px solid #eee;" />
+      <p style="color: #666; font-size: 14px;">MedTrustFund</p>
+    </div>
+  `;
+
+  return sendEmail({ to: userEmail, subject, html });
+};
+
 module.exports = {
   sendEmail,
   sendCampaignApprovalEmail,
@@ -238,5 +378,11 @@ module.exports = {
   sendDonationConfirmationEmail,
   sendMilestoneConfirmedEmail,
   sendKYCStatusEmail,
-  sendWelcomeEmail
+  sendWelcomeEmail,
+  sendRefundEmail,
+  sendCampaignTargetReachedEmail,
+  sendCampaignExpiringEmail,
+  sendHospitalAssignedEmail,
+  sendBulkEmail,
+  sendWeeklyDigestEmail,
 };
