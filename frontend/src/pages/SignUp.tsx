@@ -2,9 +2,11 @@ import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { FiMail, FiLock, FiUser, FiLink } from 'react-icons/fi';
+import { useAuth } from '../contexts/AuthContext';
 
 export default function SignUp() {
   const navigate = useNavigate();
+  const { signup } = useAuth();
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -35,32 +37,22 @@ export default function SignUp() {
     setLoading(true);
 
     try {
-      const payload = { ...formData };
-      if (formData.role !== 'donor' && formData.role !== 'hospital') {
-        delete payload.walletAddress;
-      }
+      const walletAddress =
+        formData.role === 'donor' || formData.role === 'hospital'
+          ? formData.walletAddress || undefined
+          : undefined;
 
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/auth/signup`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        setError(data.error || 'Signup failed');
-        return;
-      }
-
-      localStorage.setItem('token', data.token);
-      localStorage.setItem('user', JSON.stringify(data.user));
+      await signup(
+        formData.email,
+        formData.password,
+        formData.name,
+        formData.role,
+        walletAddress,
+      );
 
       navigate('/dashboard');
     } catch (err: any) {
-      setError(err.message || 'Network error');
+      setError(err.response?.data?.error || err.message || 'Network error');
     } finally {
       setLoading(false);
     }

@@ -1,11 +1,197 @@
 const express = require('express');
+const crypto = require('crypto');
 const User = require('../models/User');
 const { generateToken } = require('../utils/jwtUtils');
 const { authMiddleware, roleMiddleware } = require('../middleware/auth');
 const AuditLog = require('../models/AuditLog');
 const { ethers } = require('ethers');
+const { sendPasswordResetEmail, sendWelcomeEmail } = require('../utils/emailService');
 
 const router = express.Router();
+
+const hashResetToken = (token) =>
+  crypto.createHash('sha256').update(token).digest('hex');
+
+const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+// @route   POST /api/auth/forgot-password
+// @desc    Request password reset email
+// @access  Public
+router.post('/forgot-password', async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email || typeof email !== 'string') {
+      return res.status(400).json({ error: 'Email is required' });
+    }
+
+    const user = await User.findOne({ email: email.trim().toLowerCase() });
+    if (user) {
+      const rawToken = crypto.randomBytes(32).toString('hex');
+      user.passwordResetTokenHash = hashResetToken(rawToken);
+      user.passwordResetExpires = new Date(Date.now() + 60 * 60 * 1000);
+      await user.save();
+      await sendPasswordResetEmail(user.email, rawToken).catch(() => {});
+    }
+
+    res.json({
+      message: 'If an account exists for that email, we sent password reset instructions.',
+    });
+  } catch (error) {
+    console.error('Forgot password error:', error);
+    res.status(500).json({ error: 'Unable to process request' });
+  }
+});
+
+// @route   POST /api/auth/reset-password
+// @desc    Set new password using reset token from email
+// @access  Public
+router.post('/reset-password', async (req, res) => {
+  try {
+    const { token, password } = req.body;
+    if (!token || !password || String(password).length < 8) {
+      return res.status(400).json({
+        error: 'Valid token and password (min 8 characters) are required',
+      });
+    }
+
+    const tokenHash = hashResetToken(token);
+    const user = await User.findOne({
+      passwordResetTokenHash: tokenHash,
+      passwordResetExpires: { $gt: new Date() },
+    }).select('+passwordResetTokenHash +passwordResetExpires');
+
+    if (!user) {
+      return res.status(400).json({ error: 'Invalid or expired reset link' });
+    }
+
+    user.password = password;
+    user.passwordResetTokenHash = undefined;
+    user.passwordResetExpires = undefined;
+    user.walletAuthNonce = undefined;
+    user.walletAuthNonceExpires = undefined;
+    await user.save();
+
+    res.json({ message: 'Password updated. You can sign in now.' });
+  } catch (error) {
+    console.error('Reset password error:', error);
+    res.status(500).json({ error: 'Unable to reset password' });
+  }
+});
+
+// @route   POST /api/auth/wallet-challenge
+// @desc    Get a one-time message to sign for wallet login
+// @access  Public
+router.post('/wallet-challenge', async (req, res) => {
+  try {
+    const { walletAddress } = req.body;
+    if (!walletAddress || !/^0x[a-fA-F0-9]{40}$/.test(walletAddress)) {
+      return res.status(400).json({ error: 'Valid wallet address required' });
+    }
+
+    const user = await User.findOne({
+      walletAddress: new RegExp(`^${escapeRegex(walletAddress)}$`, 'i'),
+    });
+
+    if (!user || !user.isActive) {
+      return res.status(404).json({
+        error: 'No account linked to this wallet. Sign up and verify your wallet in profile first.',
+      });
+    }
+
+    const nonce = crypto.randomBytes(16).toString('hex');
+    user.walletAuthNonce = nonce;
+    user.walletAuthNonceExpires = new Date(Date.now() + 10 * 60 * 1000);
+    await user.save();
+
+    const message = `MedTrustFund wallet login\nWallet: ${walletAddress}\nNonce: ${nonce}`;
+    res.json({ message });
+  } catch (error) {
+    console.error('Wallet challenge error:', error);
+    res.status(500).json({ error: 'Unable to start wallet login' });
+  }
+});
+
+// @route   POST /api/auth/wallet-login
+// @desc    Complete wallet login with signature
+// @access  Public
+router.post('/wallet-login', async (req, res) => {
+  try {
+    const { walletAddress, signature } = req.body;
+    if (!walletAddress || !signature) {
+      return res.status(400).json({ error: 'Wallet address and signature required' });
+    }
+    if (!/^0x[a-fA-F0-9]{40}$/.test(walletAddress)) {
+      return res.status(400).json({ error: 'Invalid wallet address format' });
+    }
+
+    const user = await User.findOne({
+      walletAddress: new RegExp(`^${escapeRegex(walletAddress)}$`, 'i'),
+    }).select('+walletAuthNonce +walletAuthNonceExpires');
+
+    if (!user || !user.walletAuthNonce || !user.walletAuthNonceExpires) {
+      return res.status(400).json({ error: 'Start wallet login again (challenge expired or missing)' });
+    }
+
+    if (user.walletAuthNonceExpires.getTime() < Date.now()) {
+      user.walletAuthNonce = undefined;
+      user.walletAuthNonceExpires = undefined;
+      await user.save();
+      return res.status(400).json({ error: 'Challenge expired. Request a new one.' });
+    }
+
+    const message = `MedTrustFund wallet login\nWallet: ${walletAddress}\nNonce: ${user.walletAuthNonce}`;
+    let recovered;
+    try {
+      recovered = ethers.verifyMessage(message, signature);
+    } catch (e) {
+      return res.status(400).json({ error: 'Invalid signature' });
+    }
+
+    if (!recovered || recovered.toLowerCase() !== walletAddress.toLowerCase()) {
+      return res.status(400).json({ error: 'Signature does not match wallet' });
+    }
+
+    user.walletAuthNonce = undefined;
+    user.walletAuthNonceExpires = undefined;
+    await user.save();
+
+    await AuditLog.create({
+      userId: user._id,
+      action: 'user_login',
+      entityType: 'user',
+      entityId: user._id,
+      details: { method: 'wallet' },
+      ipAddress: req.ip,
+      status: 'success',
+    }).catch(() => {});
+
+    const token = generateToken(user._id, user.email, user.role);
+
+    const io = req.app.get('io');
+    if (io) {
+      io.to(`user:${user._id.toString()}`).emit('session:started', {
+        method: 'wallet',
+        at: new Date().toISOString(),
+      });
+    }
+
+    res.json({
+      message: 'Login successful',
+      token,
+      user: {
+        id: user._id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        walletAddress: user.walletAddress,
+        verified: user.profile?.verified,
+      },
+    });
+  } catch (error) {
+    console.error('Wallet login error:', error);
+    res.status(500).json({ error: 'Wallet login failed' });
+  }
+});
 
 // @route   POST /api/auth/signup
 // @desc    Register a new user
@@ -49,6 +235,8 @@ router.post('/signup', async (req, res) => {
     });
 
     await newUser.save();
+
+    sendWelcomeEmail(newUser.email, newUser.name).catch(() => {});
 
     // Create audit log
     await AuditLog.create({
@@ -125,6 +313,14 @@ router.post('/login', async (req, res) => {
     // Generate token
     const token = generateToken(user._id, user.email, user.role);
 
+    const io = req.app.get('io');
+    if (io) {
+      io.to(`user:${user._id.toString()}`).emit('session:started', {
+        method: 'password',
+        at: new Date().toISOString(),
+      });
+    }
+
     res.json({
       message: 'Login successful',
       token,
@@ -134,7 +330,7 @@ router.post('/login', async (req, res) => {
         name: user.name,
         role: user.role,
         walletAddress: user.walletAddress,
-        verified: user.profile.verified,
+        verified: user.profile?.verified,
       },
     });
   } catch (error) {

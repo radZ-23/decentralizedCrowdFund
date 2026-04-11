@@ -4,6 +4,8 @@ import { ThemeProvider } from './contexts/ThemeContext';
 import { initSocket } from './utils/socket';
 import Login from './pages/Login';
 import SignUp from './pages/SignUp';
+import ForgotPassword from './pages/ForgotPassword';
+import ResetPassword from './pages/ResetPassword';
 import Home from './pages/Home';
 import Dashboard from './pages/Dashboard';
 import CreateCampaign from './pages/CreateCampaign';
@@ -52,6 +54,8 @@ function App() {
           {/* Public Routes */}
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<SignUp />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/campaigns" element={<Campaigns />} />
           <Route path="/campaign/:id" element={<CampaignDetail />} />
 

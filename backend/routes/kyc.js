@@ -4,9 +4,14 @@ const path = require('path');
 const fs = require('fs');
 const KYCDocument = require('../models/KYCDocument');
 const User = require('../models/User');
-const { authenticate, authorize } = require('../middleware/auth');
+const { authMiddleware, roleMiddleware } = require('../middleware/auth');
+
+// Aliases for compatibility
+const authenticate = authMiddleware;
+const authorize = roleMiddleware;
 const logger = require('../utils/logger');
 const { sendKYCStatusEmail } = require('../utils/emailService');
+const { encryptFile, decryptFile } = require('../utils/encryption');
 
 const router = express.Router();
 
@@ -50,7 +55,7 @@ const upload = multer({
  */
 router.post('/submit', authenticate, upload.array('documents', 5), async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = req.user.userId;
     const { documentType, documentNumber, fullName, dateOfBirth } = req.body;
 
     // Validate required fields
@@ -119,6 +124,16 @@ router.post('/submit', authenticate, upload.array('documents', 5), async (req, r
     };
     await user.save();
 
+    if (req.files && req.files.length) {
+      req.files.forEach((file) => {
+        try {
+          encryptFile(file.path);
+        } catch (encErr) {
+          logger.error(`KYC file encryption error: ${encErr.message}`);
+        }
+      });
+    }
+
     logger.info(`KYC submitted by user ${userId} (${user.email})`);
 
     res.status(201).json({
@@ -147,7 +162,7 @@ router.post('/submit', authenticate, upload.array('documents', 5), async (req, r
  */
 router.get('/status', authenticate, async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = req.user.userId;
 
     const kycDocument = await KYCDocument.findOne({ user: userId })
       .sort({ submittedAt: -1 });
@@ -212,6 +227,32 @@ router.get('/pending', authenticate, authorize('admin'), async (req, res) => {
 });
 
 /**
+ * GET /api/kyc/:id/documents/:docIndex
+ * Stream decrypted KYC file (admin only)
+ */
+router.get('/:id/documents/:docIndex', authenticate, authorize('admin'), async (req, res) => {
+  try {
+    const docIndex = parseInt(req.params.docIndex, 10);
+    const kycDocument = await KYCDocument.findById(req.params.id);
+    if (!kycDocument || !kycDocument.documents || docIndex < 0 || docIndex >= kycDocument.documents.length) {
+      return res.status(404).json({ success: false, message: 'Document not found' });
+    }
+    const doc = kycDocument.documents[docIndex];
+    const filePath = path.join(__dirname, '../../', doc.url.replace(/^\//, ''));
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ success: false, message: 'File missing on disk' });
+    }
+    const buf = decryptFile(filePath);
+    res.setHeader('Content-Type', doc.mimetype || 'application/octet-stream');
+    res.setHeader('Content-Disposition', `inline; filename="${doc.originalName || 'document'}"`);
+    res.send(buf);
+  } catch (error) {
+    logger.error(`KYC document decrypt error: ${error.message}`, error);
+    res.status(500).json({ success: false, message: 'Failed to read document' });
+  }
+});
+
+/**
  * GET /api/kyc/:id
  * Get specific KYC document details (Admin only)
  */
@@ -250,7 +291,7 @@ router.post('/:id/approve', authenticate, authorize('admin'), async (req, res) =
   try {
     const { id } = req.params;
     const { notes } = req.body;
-    const adminId = req.user.id;
+    const adminId = req.user.userId;
 
     const kycDocument = await KYCDocument.findById(id);
     if (!kycDocument) {
@@ -330,7 +371,7 @@ router.post('/:id/reject', authenticate, authorize('admin'), async (req, res) =>
   try {
     const { id } = req.params;
     const { reason } = req.body;
-    const adminId = req.user.id;
+    const adminId = req.user.userId;
 
     if (!reason || reason.trim().length === 0) {
       return res.status(400).json({

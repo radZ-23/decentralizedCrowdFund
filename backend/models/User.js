@@ -53,6 +53,16 @@ const UserSchema = new mongoose.Schema({
   targetAmount: Number,
   
   isActive: { type: Boolean, default: true },
+
+  passwordResetTokenHash: { type: String, select: false },
+  passwordResetExpires: { type: Date, select: false },
+  walletAuthNonce: { type: String, select: false },
+  walletAuthNonceExpires: { type: Date, select: false },
+
+  preferences: {
+    emailNotifications: { type: mongoose.Schema.Types.Mixed, default: undefined },
+  },
+
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },
 });

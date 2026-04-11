@@ -16,9 +16,17 @@ describe('Campaign Routes', () => {
     await mongoose.connect('mongodb://127.0.0.1:27017/medtrust_test');
   });
 
+  const testEmails = [
+    'patient@test.com',
+    'hospital@test.com',
+    'admin@test.com',
+    'other@test.com',
+    'other2@test.com',
+  ];
+
   afterAll(async () => {
     await Campaign.deleteMany({});
-    await User.deleteMany({ email: { $in: ['patient@test.com', 'hospital@test.com', 'admin@test.com'] } });
+    await User.deleteMany({ email: { $in: testEmails } });
     await AuditLog.deleteMany({});
     await mongoose.connection.close();
   });
@@ -26,8 +34,7 @@ describe('Campaign Routes', () => {
   beforeEach(async () => {
     await Campaign.deleteMany({});
 
-    // Create test users
-    await User.deleteMany({ email: { $in: ['patient@test.com', 'hospital@test.com', 'admin@test.com'] } });
+    await User.deleteMany({ email: { $in: testEmails } });
 
     // Create patient user
     const patientRes = await request(app)
@@ -191,7 +198,8 @@ describe('Campaign Routes', () => {
         .query({ status: 'active' });
 
       expect(res.status).toBe(200);
-      expect(res.body.campaigns).toHaveLength(expect.any(Number));
+      expect(Array.isArray(res.body.campaigns)).toBe(true);
+      expect(res.body.campaigns.length).toBeGreaterThanOrEqual(0);
       res.body.campaigns.forEach(c => {
         expect(c.status).toBe('active');
       });

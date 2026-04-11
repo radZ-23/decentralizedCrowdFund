@@ -119,15 +119,19 @@ export const sendTransaction = async (
 /**
  * Sign a message with the connected wallet
  */
-export const signMessage = async (message: string): Promise<string> => {
+export const signMessage = async (message: string, signerAddress?: string | null): Promise<string> => {
   if (!isMetaMaskInstalled()) {
     throw new Error("MetaMask not installed");
   }
 
   try {
+    const account = signerAddress || (await getCurrentWallet());
+    if (!account) {
+      throw new Error("No wallet account selected");
+    }
     const signature = await window.ethereum.request({
       method: "personal_sign",
-      params: [message, (await getCurrentWallet())!],
+      params: [message, account],
     });
 
     return signature;

@@ -3,16 +3,32 @@ import { useNavigate, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { FiMail, FiLock } from 'react-icons/fi';
 import ThemeToggle from '../components/ui/ThemeToggle';
+import { useAuth } from '../contexts/AuthContext';
 
 export default function Login() {
   const navigate = useNavigate();
+  const { login, loginWithWallet } = useAuth();
   const [formData, setFormData] = useState({
     email: '',
     password: '',
     rememberMe: false,
   });
   const [loading, setLoading] = useState(false);
+  const [walletBusy, setWalletBusy] = useState(false);
   const [error, setError] = useState('');
+
+  const handleWalletLogin = async () => {
+    setError('');
+    setWalletBusy(true);
+    try {
+      await loginWithWallet();
+      navigate('/dashboard');
+    } catch (err: any) {
+      setError(err.response?.data?.error || err.message || 'Wallet login failed');
+    } finally {
+      setWalletBusy(false);
+    }
+  };
 
   const handleChange = (e: any) => {
     const { name, value, type, checked } = e.target;
@@ -34,26 +50,7 @@ export default function Login() {
     setLoading(true);
 
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/auth/login`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          email: formData.email,
-          password: formData.password,
-        }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        setError(data.error || 'Login failed');
-        return;
-      }
-
-      localStorage.setItem('token', data.token);
-      localStorage.setItem('user', JSON.stringify(data.user));
+      await login(formData.email, formData.password);
 
       if (formData.rememberMe) {
         localStorage.setItem('rememberMe', 'true');
@@ -61,7 +58,7 @@ export default function Login() {
 
       navigate('/dashboard');
     } catch (err: any) {
-      setError(err.message || 'Network error');
+      setError(err.response?.data?.error || err.message || 'Network error');
     } finally {
       setLoading(false);
     }
@@ -198,13 +195,18 @@ export default function Login() {
             
             <button
               type="button"
-              className="w-full flex items-center justify-center gap-3 py-3 px-4 bg-white/5 hover:bg-white/10 border border-white/10 text-white font-medium rounded-xl transition-all"
+              onClick={handleWalletLogin}
+              disabled={loading || walletBusy}
+              className="w-full flex items-center justify-center gap-3 py-3 px-4 bg-white/5 hover:bg-white/10 border border-white/10 text-white font-medium rounded-xl transition-all disabled:opacity-60 disabled:cursor-not-allowed"
             >
               <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
                 <path d="M11.944 17.97L4.58 13.62 11.943 24l7.37-10.38-7.372 4.35h.003zM12.056 0L4.69 12.223l7.365 4.354 7.365-4.35L12.056 0z"/>
               </svg>
-              <span>Connect Wallet</span>
+              <span>{walletBusy ? 'Waiting for wallet…' : 'Connect Wallet'}</span>
             </button>
+            <p className="text-[11px] text-slate-500 px-2">
+              Your wallet must already be linked to your account (Profile → verify wallet after you sign up).
+            </p>
           </div>
 
           <p className="mt-8 text-center text-sm text-slate-400">

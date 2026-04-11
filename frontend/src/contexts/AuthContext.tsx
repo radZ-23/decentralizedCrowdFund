@@ -1,5 +1,6 @@
 import { createContext, useState, useEffect, ReactNode, useContext } from 'react';
 import api from '../services/api';
+import { connectWallet, signMessage } from '../utils/web3';
 
 interface User {
   id: string;
@@ -20,6 +21,7 @@ interface AuthContextType {
   updateProfile: (data: Partial<User>) => Promise<void>;
   verifyWallet: (walletAddress: string, signature: string) => Promise<void>;
   refreshUser: () => Promise<void>;
+  loginWithWallet: () => Promise<void>;
 }
 
 export const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -102,6 +104,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.setItem('user', JSON.stringify(updatedUser));
   };
 
+  const loginWithWallet = async () => {
+    const walletAddress = await connectWallet();
+    const challenge = await api.post('/auth/wallet-challenge', { walletAddress });
+    const message = challenge.data?.message;
+    if (!message) {
+      throw new Error('Invalid challenge from server');
+    }
+    const signature = await signMessage(message, walletAddress);
+    const response = await api.post('/auth/wallet-login', { walletAddress, signature });
+    const { token: newToken, user: newUser } = response.data;
+    setToken(newToken);
+    setUser(newUser);
+    localStorage.setItem('token', newToken);
+    localStorage.setItem('user', JSON.stringify(newUser));
+  };
+
   const value = {
     user,
     token,
@@ -112,6 +130,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     updateProfile,
     verifyWallet,
     refreshUser,
+    loginWithWallet,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

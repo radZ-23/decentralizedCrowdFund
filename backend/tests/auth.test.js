@@ -6,6 +6,15 @@ const AuditLog = require('../models/AuditLog');
 
 const API_URL = 'http://localhost:5000';
 
+const authTestEmails = [
+  'test@example.com',
+  'donor@example.com',
+  'login@example.com',
+  'profile@example.com',
+  'update@example.com',
+  'wallet@example.com',
+];
+
 describe('Auth Routes', () => {
   let testUser;
   let authToken;
@@ -17,15 +26,13 @@ describe('Auth Routes', () => {
   });
 
   afterAll(async () => {
-    // Cleanup
-    await User.deleteMany({ email: { $in: ['test@example.com', 'donor@example.com'] } });
+    await User.deleteMany({ email: { $in: authTestEmails } });
     await AuditLog.deleteMany({});
     await mongoose.connection.close();
   });
 
   beforeEach(async () => {
-    // Clean up before each test
-    await User.deleteMany({ email: { $in: ['test@example.com', 'donor@example.com'] } });
+    await User.deleteMany({ email: { $in: authTestEmails } });
   });
 
   describe('POST /api/auth/signup', () => {

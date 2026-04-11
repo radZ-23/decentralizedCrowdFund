@@ -29,6 +29,7 @@ ai-service/uploads/
 ai-service/__pycache__/
 
 # Environment Variables
+
 .env
 .env.local
 .env.development.local

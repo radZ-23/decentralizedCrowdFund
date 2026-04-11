@@ -64,6 +64,7 @@ async function executeWithRetry(fn, operationName, maxRetries = MAX_RETRIES) {
 /**
  * Load compiled contract artifact from Hardhat
  */
+function loadContractArtifact(contractName = 'MedTrustFundEscrow') {
   const artifactPath = path.join(__dirname, '../../hardhat/artifacts/contracts', `${contractName}.sol`, `${contractName}.json`);
 
   if (!fs.existsSync(artifactPath)) {

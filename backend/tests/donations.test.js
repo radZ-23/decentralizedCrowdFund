@@ -7,6 +7,15 @@ const User = require('../models/User');
 const AuditLog = require('../models/AuditLog');
 
 describe('Donation Routes', () => {
+  const donationTestEmails = [
+    'donor@test.com',
+    'patient@test.com',
+    'admin@test.com',
+    'otherdonor@test.com',
+    'viewertest@test.com',
+    'unauthorized@test.com',
+  ];
+
   let donorToken;
   let patientToken;
   let adminToken;
@@ -22,7 +31,7 @@ describe('Donation Routes', () => {
   afterAll(async () => {
     await Donation.deleteMany({});
     await Campaign.deleteMany({});
-    await User.deleteMany({ email: { $in: ['donor@test.com', 'patient@test.com', 'admin@test.com'] } });
+    await User.deleteMany({ email: { $in: donationTestEmails } });
     await AuditLog.deleteMany({});
     await mongoose.connection.close();
   });
@@ -30,6 +39,7 @@ describe('Donation Routes', () => {
   beforeEach(async () => {
     await Donation.deleteMany({});
     await Campaign.deleteMany({});
+    await User.deleteMany({ email: { $in: donationTestEmails } });
 
     // Create donor user
     const donorRes = await request(app)

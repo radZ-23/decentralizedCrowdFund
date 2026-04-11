@@ -9,7 +9,7 @@ import api from "../services/api";
 
 export default function Profile() {
   const navigate = useNavigate();
-  const { user, logout, verifyWallet, refreshUser } = useAuth();
+  const { user, logout, verifyWallet, refreshUser, loading } = useAuth();
   const [linking, setLinking] = useState(false);
   const [linkError, setLinkError] = useState("");
   const [savingPrefs, setSavingPrefs] = useState(false);
@@ -22,13 +22,24 @@ export default function Profile() {
   });
 
   useEffect(() => {
-    if (!user) navigate("/login");
-    // Load email preferences from localStorage or user data
-    const stored = localStorage.getItem(`email_prefs_${user?.id}`);
+    if (loading) return;
+    if (!user) {
+      navigate("/login");
+      return;
+    }
+    const stored = localStorage.getItem(`email_prefs_${user.id}`);
     if (stored) {
       setEmailPrefs(JSON.parse(stored));
     }
-  }, [navigate, user?.id]);
+  }, [loading, navigate, user]);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-950">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-purple-500" />
+      </div>
+    );
+  }
 
   if (!user) return null;
 
@@ -40,7 +51,7 @@ export default function Profile() {
       // Save to localStorage immediately for responsiveness
       localStorage.setItem(`email_prefs_${user.id}`, JSON.stringify(newPrefs));
       // Optionally sync to backend
-      await api.put('/api/user/preferences', { emailPreferences: newPrefs }).catch(() => {});
+      await api.put('/auth/preferences', { emailPreferences: newPrefs }).catch(() => {});
     } finally {
       setSavingPrefs(false);
     }

@@ -1,4 +1,5 @@
 const express = require('express');
+const mongoose = require('mongoose');
 const Campaign = require('../models/Campaign');
 const Donation = require('../models/Donation');
 const User = require('../models/User');
@@ -51,12 +52,63 @@ router.get('/me', authMiddleware, async (req, res) => {
       };
 
       const progress = stats.targetAmount > 0 ? (stats.amountRaised / stats.targetAmount) * 100 : 0;
-      return res.json({ role, stats: { ...stats, progress } });
+
+      const campaignList = await Campaign.find({ patientId: userId })
+        .select('title raisedAmount targetAmount status')
+        .sort({ updatedAt: -1 })
+        .limit(12)
+        .lean();
+
+      const byCampaign = campaignList.map((c) => ({
+        title: c.title,
+        raisedAmount: c.raisedAmount || 0,
+        targetAmount: c.targetAmount || 0,
+        progress: c.targetAmount > 0 ? ((c.raisedAmount || 0) / c.targetAmount) * 100 : 0,
+        status: c.status,
+      }));
+
+      const campaignIds = campaignList.map((c) => c._id);
+      const sixMonthsAgo = new Date();
+      sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+      let monthlyInflow = [];
+      if (campaignIds.length) {
+        monthlyInflow = await Donation.aggregate([
+          {
+            $match: {
+              campaignId: { $in: campaignIds },
+              createdAt: { $gte: sixMonthsAgo },
+            },
+          },
+          {
+            $group: {
+              _id: { y: { $year: '$createdAt' }, m: { $month: '$createdAt' } },
+              amount: { $sum: { $ifNull: ['$amount', 0] } },
+              count: { $sum: 1 },
+            },
+          },
+          { $sort: { '_id.y': 1, '_id.m': 1 } },
+        ]);
+      }
+
+      return res.json({
+        role,
+        stats: { ...stats, progress },
+        charts: {
+          byCampaign,
+          monthlyInflow: monthlyInflow.map((x) => ({
+            year: x._id.y,
+            month: x._id.m,
+            amount: x.amount,
+            count: x.count,
+          })),
+        },
+      });
     }
 
     if (role === 'donor') {
+      const oid = new mongoose.Types.ObjectId(userId);
       const rows = await Donation.aggregate([
-        { $match: { donorId: userId } },
+        { $match: { donorId: oid } },
         {
           $group: {
             _id: null,
@@ -67,7 +119,60 @@ router.get('/me', authMiddleware, async (req, res) => {
       ]);
 
       const stats = rows[0] || { totalDonations: 0, amountDonated: 0 };
-      return res.json({ role, stats });
+
+      const sixMonthsAgo = new Date();
+      sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+      const monthlyGiving = await Donation.aggregate([
+        { $match: { donorId: oid, createdAt: { $gte: sixMonthsAgo } } },
+        {
+          $group: {
+            _id: { y: { $year: '$createdAt' }, m: { $month: '$createdAt' } },
+            amount: { $sum: { $ifNull: ['$amount', 0] } },
+            count: { $sum: 1 },
+          },
+        },
+        { $sort: { '_id.y': 1, '_id.m': 1 } },
+      ]);
+
+      const topSupported = await Donation.aggregate([
+        { $match: { donorId: oid } },
+        {
+          $group: {
+            _id: '$campaignId',
+            totalAmount: { $sum: { $ifNull: ['$amount', 0] } },
+            donations: { $sum: 1 },
+          },
+        },
+        { $sort: { totalAmount: -1 } },
+        { $limit: 6 },
+        {
+          $lookup: {
+            from: 'campaigns',
+            localField: '_id',
+            foreignField: '_id',
+            as: 'campaign',
+          },
+        },
+        { $unwind: { path: '$campaign', preserveNullAndEmptyArrays: true } },
+      ]);
+
+      return res.json({
+        role,
+        stats,
+        charts: {
+          monthlyGiving: monthlyGiving.map((x) => ({
+            year: x._id.y,
+            month: x._id.m,
+            amount: x.amount,
+            count: x.count,
+          })),
+          topSupported: topSupported.map((x) => ({
+            title: x.campaign?.title || 'Campaign',
+            totalAmount: x.totalAmount,
+            donations: x.donations,
+          })),
+        },
+      });
     }
 
     if (role === 'hospital') {
@@ -78,14 +183,32 @@ router.get('/me', authMiddleware, async (req, res) => {
             _id: null,
             assignedCampaigns: { $sum: 1 },
             activeCampaigns: {
-              $sum: { $cond: [{ $eq: ['$status', 'active'] }, 1, 0] }
-            }
-          }
-        }
+              $sum: { $cond: [{ $eq: ['$status', 'active'] }, 1, 0] },
+            },
+          },
+        },
       ]);
 
       const stats = rows[0] || { assignedCampaigns: 0, activeCampaigns: 0 };
-      return res.json({ role, stats });
+
+      const assignedList = await Campaign.find({ hospitalId: userId })
+        .select('title raisedAmount targetAmount status')
+        .sort({ updatedAt: -1 })
+        .limit(10)
+        .lean();
+
+      return res.json({
+        role,
+        stats,
+        charts: {
+          assignedCampaigns: assignedList.map((c) => ({
+            title: c.title,
+            raisedAmount: c.raisedAmount || 0,
+            targetAmount: c.targetAmount || 0,
+            status: c.status,
+          })),
+        },
+      });
     }
 
     // Admin: high-level platform stats

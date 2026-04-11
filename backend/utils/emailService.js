@@ -394,8 +394,29 @@ const sendWeeklyDigestEmail = async (userEmail, userName, stats) => {
   return sendEmail({ to: userEmail, subject, html });
 };
 
+const sendPasswordResetEmail = async (userEmail, resetToken) => {
+  const base = process.env.FRONTEND_URL || 'http://localhost:5173';
+  const link = `${base}/reset-password?token=${encodeURIComponent(resetToken)}`;
+  const subject = 'Reset your MedTrustFund password';
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <h2 style="color: #7c3aed;">Password reset</h2>
+      <p>We received a request to reset your password. Click the button below to choose a new password.</p>
+      <p style="color:#64748b;font-size:13px;">This link expires in one hour. If you did not request this, you can ignore this email.</p>
+      <a href="${link}"
+         style="display: inline-block; padding: 12px 24px; background-color: #7c3aed; color: white; text-decoration: none; border-radius: 6px; margin-top: 16px;">
+        Reset password
+      </a>
+      <p style="margin-top:24px;font-size:12px;color:#94a3b8;word-break:break-all;">${link}</p>
+    </div>
+  `;
+  const text = `Reset your password: ${link}`;
+  return sendEmail({ to: userEmail, subject, html, text });
+};
+
 module.exports = {
   sendEmail,
+  sendPasswordResetEmail,
   sendCampaignApprovalEmail,
   sendCampaignRejectionEmail,
   sendDonationReceivedEmail,

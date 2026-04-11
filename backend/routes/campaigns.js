@@ -345,7 +345,7 @@ router.put('/:id', authMiddleware, roleMiddleware(['patient', 'admin']), async (
       action: 'campaign_updated',
       entityType: 'campaign',
       entityId: campaign._id,
-      details: { updates: Object.keys(updateData) },
+      details: { updates: Object.keys(updateData).join(',') },
       status: 'success',
     });
 

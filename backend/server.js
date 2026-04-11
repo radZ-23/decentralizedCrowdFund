@@ -81,11 +81,16 @@ app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 // MongoDB Connection
 const mongoUri = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/medtrust";
+const isTestEnv =
+  process.env.NODE_ENV === "test" || process.env.JEST_WORKER_ID !== undefined;
+
 mongoose
   .connect(mongoUri)
   .then(() => {
     console.log("✅ MongoDB connected");
-    startIndexer(30); // Poll every 30 seconds
+    if (!isTestEnv) {
+      startIndexer(30); // Poll every 30 seconds
+    }
   })
   .catch((err) => {
     console.warn("⚠️  MongoDB connection pending:", err.message);
@@ -141,7 +146,7 @@ io.on('connection', (socket) => {
 
 // Error handling middleware
 app.use((err, req, res, next) => {
-  logger.error(`Server error: ${err.message}`, error);
+  logger.error(`Server error: ${err.message}`, err);
   res.status(500).json({ error: `Server error: ${err.message}` });
 });
 
@@ -150,13 +155,17 @@ app.use((req, res) => {
   res.status(404).json({ error: "Route not found" });
 });
 
-// Start server
 const PORT = process.env.PORT || 5000;
-server.listen(PORT, () => {
-  logger.info(`🚀 Backend server running on port ${PORT}`);
-  logger.info(`📍 API URL: http://localhost:${PORT}`);
-  logger.info(`🔌 Socket.IO ready for real-time updates`);
-  console.log(`🚀 Backend server running on port ${PORT}`);
-  console.log(`📍 API URL: http://localhost:${PORT}`);
-  console.log(`🔌 Socket.IO ready for real-time updates`);
-});
+
+module.exports = app;
+
+if (!isTestEnv) {
+  server.listen(PORT, () => {
+    logger.info(`🚀 Backend server running on port ${PORT}`);
+    logger.info(`📍 API URL: http://localhost:${PORT}`);
+    logger.info(`🔌 Socket.IO ready for real-time updates`);
+    console.log(`🚀 Backend server running on port ${PORT}`);
+    console.log(`📍 API URL: http://localhost:${PORT}`);
+    console.log(`🔌 Socket.IO ready for real-time updates`);
+  });
+}
