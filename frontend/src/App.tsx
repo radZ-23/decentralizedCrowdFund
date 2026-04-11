@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
 import { ThemeProvider } from './contexts/ThemeContext';
+import { initSocket } from './utils/socket';
 import Login from './pages/Login';
 import SignUp from './pages/SignUp';
 import Home from './pages/Home';
@@ -18,11 +19,28 @@ import HospitalProfile from './pages/HospitalProfile';
 import AdminUsers from './pages/AdminUsers';
 import AdminAuditLogs from './pages/AdminAuditLogs';
 import AdminContracts from './pages/AdminContracts';
+import Notifications from './pages/Notifications';
+import KYCSubmission from './pages/KYCSubmission';
+import AdminCampaignReview from './pages/AdminCampaignReview';
+import TransactionHistory from './pages/TransactionHistory';
 import './App.css';
 
-function ProtectedRoute({ children }: { children: React.ReactNode }) {
+// Initialize socket connection on app load
+initSocket();
+
+function ProtectedRoute({ children, allowedRoles }: { children: React.ReactNode; allowedRoles?: string[] }) {
   const token = localStorage.getItem('token');
-  return token ? <>{children}</> : <Navigate to="/login" />;
+  const user = JSON.parse(localStorage.getItem('user') || 'null');
+
+  if (!token) {
+    return <Navigate to="/login" />;
+  }
+
+  if (allowedRoles && !allowedRoles.includes(user?.role)) {
+    return <Navigate to="/dashboard" />;
+  }
+
+  return <>{children}</>;
 }
 
 function App() {
@@ -81,7 +99,7 @@ function App() {
           <Route
             path="/admin/dashboard"
             element={
-              <ProtectedRoute>
+              <ProtectedRoute allowedRoles={['admin']}>
                 <AdminDashboard />
               </ProtectedRoute>
             }
@@ -89,14 +107,20 @@ function App() {
           <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
           <Route path="/analytics" element={<ProtectedRoute><Analytics /></ProtectedRoute>} />
           <Route path="/hospital-profile" element={<ProtectedRoute><HospitalProfile /></ProtectedRoute>} />
-          <Route path="/admin/users" element={<ProtectedRoute><AdminUsers /></ProtectedRoute>} />
-          <Route path="/admin/audit-logs" element={<ProtectedRoute><AdminAuditLogs /></ProtectedRoute>} />
-          <Route path="/admin/contracts" element={<ProtectedRoute><AdminContracts /></ProtectedRoute>} />
+          <Route path="/admin/users" element={<ProtectedRoute allowedRoles={['admin']}><AdminUsers /></ProtectedRoute>} />
+          <Route path="/admin/audit-logs" element={<ProtectedRoute allowedRoles={['admin']}><AdminAuditLogs /></ProtectedRoute>} />
+          <Route path="/admin/contracts" element={<ProtectedRoute allowedRoles={['admin']}><AdminContracts /></ProtectedRoute>} />
+          <Route path="/admin/campaign-review" element={<ProtectedRoute allowedRoles={['admin']}><AdminCampaignReview /></ProtectedRoute>} />
+
+          {/* User Routes */}
+          <Route path="/notifications" element={<ProtectedRoute><Notifications /></ProtectedRoute>} />
+          <Route path="/kyc-submission" element={<ProtectedRoute><KYCSubmission /></ProtectedRoute>} />
+          <Route path="/transactions" element={<ProtectedRoute><TransactionHistory /></ProtectedRoute>} />
 
           {/* Root mapped to Home */}
           <Route path="/" element={<Home />} />
 
-          {/* 404 mapped to Home instead of dashboard for unauthenticated users */}
+          {/* 404 mapped to Home */}
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>
       </BrowserRouter>

@@ -1,22 +1,50 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { FiUser, FiActivity, FiLogOut, FiEdit3, FiAward, FiShield } from "react-icons/fi";
+import { FiUser, FiActivity, FiLogOut, FiEdit3, FiAward, FiShield, FiMail, FiBell, FiCheck } from "react-icons/fi";
 import WalletConnectButton from "../components/ui/WalletConnectButton";
 import { useAuth } from "../contexts/AuthContext";
 import { signMessage } from "../utils/web3";
+import api from "../services/api";
 
 export default function Profile() {
   const navigate = useNavigate();
   const { user, logout, verifyWallet, refreshUser } = useAuth();
   const [linking, setLinking] = useState(false);
   const [linkError, setLinkError] = useState("");
+  const [savingPrefs, setSavingPrefs] = useState(false);
+  const [emailPrefs, setEmailPrefs] = useState({
+    campaignUpdates: true,
+    donationNotifications: true,
+    milestoneAlerts: true,
+    kycStatus: true,
+    marketingEmails: false,
+  });
 
   useEffect(() => {
     if (!user) navigate("/login");
-  }, [navigate]);
+    // Load email preferences from localStorage or user data
+    const stored = localStorage.getItem(`email_prefs_${user?.id}`);
+    if (stored) {
+      setEmailPrefs(JSON.parse(stored));
+    }
+  }, [navigate, user?.id]);
 
   if (!user) return null;
+
+  const handlePrefChange = async (key: keyof typeof emailPrefs) => {
+    const newPrefs = { ...emailPrefs, [key]: !emailPrefs[key] };
+    setEmailPrefs(newPrefs);
+    setSavingPrefs(true);
+    try {
+      // Save to localStorage immediately for responsiveness
+      localStorage.setItem(`email_prefs_${user.id}`, JSON.stringify(newPrefs));
+      // Optionally sync to backend
+      await api.put('/api/user/preferences', { emailPreferences: newPrefs }).catch(() => {});
+    } finally {
+      setSavingPrefs(false);
+    }
+  };
 
   const handleLinkWallet = async (address: string) => {
     try {
@@ -88,7 +116,7 @@ export default function Profile() {
             </div>
           </div>
 
-          <div className="mt-10 pt-8 border-t border-white/5 grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="mt-10 pt-8 border-t border-white/5 space-y-6">
             <div className="p-5 bg-slate-900/50 rounded-2xl border border-white/5 relative overflow-hidden group-hover:border-indigo-500/20 transition-all">
               <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-4 flex items-center gap-2"><FiShield/> Connected Wallet</h3>
               <p className="font-mono text-sm text-indigo-300 break-all p-3 bg-black/30 rounded-lg border border-white/5">
@@ -133,6 +161,79 @@ export default function Profile() {
                   <p className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-pink-400 to-indigo-400">Activity</p>
                   <p className="text-[10px] uppercase text-slate-500 font-bold mt-1">View Donations</p>
                 </div>
+              </div>
+            </div>
+
+            {/* Email Preferences Section */}
+            <div className="p-5 bg-slate-900/50 rounded-2xl border border-white/5 relative overflow-hidden group-hover:border-emerald-500/20 transition-all">
+              <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-4 flex items-center gap-2">
+                <FiMail /> Email Notifications
+              </h3>
+              <div className="space-y-3">
+                {[
+                  { key: 'campaignUpdates', label: 'Campaign Updates', desc: 'Status changes and reviews' },
+                  { key: 'donationNotifications', label: 'Donation Alerts', desc: 'When you receive donations' },
+                  { key: 'milestoneAlerts', label: 'Milestone Notifications', desc: 'Milestone confirmations and releases' },
+                  { key: 'kycStatus', label: 'KYC Status', desc: 'Verification status updates' },
+                  { key: 'marketingEmails', label: 'Platform Updates', desc: 'New features and announcements' },
+                ].map((pref) => (
+                  <div
+                    key={pref.key}
+                    className="flex items-center justify-between p-3 bg-black/20 rounded-lg border border-white/5 hover:border-emerald-500/20 transition-all"
+                  >
+                    <div>
+                      <p className="text-sm font-bold text-white">{pref.label}</p>
+                      <p className="text-xs text-slate-500">{pref.desc}</p>
+                    </div>
+                    <button
+                      onClick={() => handlePrefChange(pref.key as keyof typeof emailPrefs)}
+                      disabled={savingPrefs}
+                      className={`relative w-12 h-6 rounded-full transition-all ${
+                        emailPrefs[pref.key as keyof typeof emailPrefs]
+                          ? 'bg-emerald-500'
+                          : 'bg-slate-600'
+                      } ${savingPrefs ? 'opacity-50' : ''}`}
+                    >
+                      <div
+                        className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${
+                          emailPrefs[pref.key as keyof typeof emailPrefs] ? 'left-7' : 'left-1'
+                        }`}
+                      />
+                    </button>
+                  </div>
+                ))}
+              </div>
+              {savingPrefs && (
+                <p className="text-xs text-emerald-400 mt-2 flex items-center gap-1">
+                  <FiCheck className="w-3 h-3" /> Saving...
+                </p>
+              )}
+            </div>
+
+            {/* Quick Links */}
+            <div className="p-5 bg-slate-900/50 rounded-2xl border border-white/5 relative overflow-hidden group-hover:border-purple-500/20 transition-all">
+              <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-4 flex items-center gap-2">
+                <FiBell /> Quick Links
+              </h3>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={() => navigate('/kyc-submission')}
+                  className="px-4 py-2 bg-white/5 hover:bg-white/10 rounded-lg text-sm text-white font-medium transition-all"
+                >
+                  KYC Submission
+                </button>
+                <button
+                  onClick={() => navigate('/transactions')}
+                  className="px-4 py-2 bg-white/5 hover:bg-white/10 rounded-lg text-sm text-white font-medium transition-all"
+                >
+                  Transaction History
+                </button>
+                <button
+                  onClick={() => navigate('/notifications')}
+                  className="px-4 py-2 bg-white/5 hover:bg-white/10 rounded-lg text-sm text-white font-medium transition-all"
+                >
+                  Notifications
+                </button>
               </div>
             </div>
           </div>

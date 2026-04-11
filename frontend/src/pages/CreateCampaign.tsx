@@ -1,11 +1,11 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import api from "../services/api";
-import { 
-  FiFilePlus, FiActivity, FiShield, 
+import {
+  FiFilePlus, FiActivity, FiShield,
   FiCheckCircle, FiUploadCloud, FiTrash2, FiPlusCircle,
-  FiArrowRight, FiArrowLeft
+  FiArrowRight, FiArrowLeft, FiHospital, FiLoader
 } from "react-icons/fi";
 
 interface FormData {
@@ -16,6 +16,15 @@ interface FormData {
   medicalCondition: string;
   severityLevel: string;
   estimatedTreatmentDuration: string;
+}
+
+interface Hospital {
+  _id: string;
+  email: string;
+  hospitalName?: string;
+  profile?: {
+    verified?: boolean;
+  };
 }
 
 interface Milestone {
@@ -31,6 +40,8 @@ export default function CreateCampaign() {
   const [files, setFiles] = useState<File[]>([]);
   const [documentTypes, setDocumentTypes] = useState<string[]>([]);
   const [step, setStep] = useState(1);
+  const [hospitals, setHospitals] = useState<Hospital[]>([]);
+  const [loadingHospitals, setLoadingHospitals] = useState(false);
 
   const [formData, setFormData] = useState<FormData>({
     title: "",
@@ -41,6 +52,22 @@ export default function CreateCampaign() {
     severityLevel: "moderate",
     estimatedTreatmentDuration: "",
   });
+
+  useEffect(() => {
+    fetchHospitals();
+  }, []);
+
+  const fetchHospitals = async () => {
+    try {
+      setLoadingHospitals(true);
+      const res = await api.get('/api/hospitals/verified');
+      setHospitals(res.data.hospitals || []);
+    } catch (err) {
+      console.error('Failed to fetch hospitals:', err);
+    } finally {
+      setLoadingHospitals(false);
+    }
+  };
 
   const [milestones, setMilestones] = useState<Milestone[]>([
     { description: "Hospital Admission & Initial Tests", targetAmount: 0 },
@@ -227,15 +254,34 @@ export default function CreateCampaign() {
             </div>
           </div>
           <div>
-            <label className="block text-sm font-semibold text-slate-300 mb-2 ml-1">Hospital ID (Optional)</label>
-            <input
-              type="text"
-              name="hospitalId"
-              value={formData.hospitalId}
-              onChange={handleChange}
-              placeholder="System Hospital ID"
-              className="w-full px-5 py-3.5 bg-slate-900/50 border border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50 text-white placeholder-slate-500 transition-all font-mono text-sm"
-            />
+            <label className="block text-sm font-semibold text-slate-300 mb-2 ml-1">Associate Hospital (Optional)</label>
+            <div className="relative">
+              <select
+                name="hospitalId"
+                value={formData.hospitalId}
+                onChange={handleChange}
+                disabled={loadingHospitals}
+                className="w-full px-5 py-3.5 bg-slate-900/50 border border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50 text-white appearance-none transition-all font-medium disabled:opacity-50"
+              >
+                <option value="" className="bg-slate-900">Select a hospital...</option>
+                {hospitals.map((h) => (
+                  <option key={h._id} value={h._id} className="bg-slate-900">
+                    {h.hospitalName || h.email} {h.profile?.verified ? '(Verified)' : ''}
+                  </option>
+                ))}
+              </select>
+              <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-4 text-slate-400">
+                <svg className="fill-current h-4 w-4" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg>
+              </div>
+              {loadingHospitals && (
+                <div className="absolute right-10 top-1/2 -translate-y-1/2">
+                  <FiLoader className="w-4 h-4 text-slate-400 animate-spin" />
+                </div>
+              )}
+            </div>
+            {hospitals.length === 0 && !loadingHospitals && (
+              <p className="text-xs text-slate-500 mt-2 ml-1">No verified hospitals available. Enter hospital ID manually if needed.</p>
+            )}
           </div>
         </div>
       </div>
