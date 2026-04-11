@@ -20,6 +20,7 @@ const adminRoutes = require("./routes/admin");
 const analyticsRoutes = require("./routes/analytics");
 const hospitalsRoutes = require("./routes/hospitals");
 const kycRoutes = require("./routes/kyc");
+const transactionsRoutes = require("./routes/transactions");
 
 // Import middleware
 const { auditLogMiddleware } = require("./middleware/auth");
@@ -100,6 +101,7 @@ app.use("/api/admin", adminRoutes);
 app.use("/api/analytics", analyticsRoutes);
 app.use("/api/hospitals", hospitalsRoutes);
 app.use("/api/kyc", kycRoutes);
+app.use("/api/transactions", transactionsRoutes);
 
 // Health check
 app.get("/api/health", (req, res) => {
