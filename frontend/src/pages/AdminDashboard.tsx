@@ -38,6 +38,7 @@ export default function AdminDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [reviewingCampaign, setReviewingCampaign] = useState<string | null>(null);
+  const [pendingKycCount, setPendingKycCount] = useState(0);
 
   useEffect(() => {
     fetchDashboardData();
@@ -46,15 +47,17 @@ export default function AdminDashboard() {
   const fetchDashboardData = async () => {
     try {
       setLoading(true);
-      const [statsRes, pendingRes, activeRes] = await Promise.all([
+      const [statsRes, pendingRes, activeRes, kycRes] = await Promise.all([
         api.get("/api/admin/dashboard"),
         api.get("/api/admin/campaigns/pending-review"),
         api.get("/api/campaigns?status=active"),
+        api.get("/kyc/pending").catch(() => ({ data: { count: 0 } })),
       ]);
 
       setStats(statsRes.data.statistics);
       setPendingCampaigns(pendingRes.data.campaigns || []);
       setActiveCampaignsList(activeRes.data.campaigns || []);
+      setPendingKycCount(typeof kycRes.data?.count === "number" ? kycRes.data.count : 0);
     } catch (err: any) {
       console.error("Dashboard error:", err);
       setError(err.response?.data?.error || "Failed to load dashboard");
@@ -148,6 +151,18 @@ export default function AdminDashboard() {
           animate={{ opacity: 1, x: 0 }}
           className="flex items-center gap-3"
         >
+          <button
+            onClick={() => navigate("/admin/kyc-review")}
+            className="px-4 py-2 bg-white/5 text-slate-300 border border-white/10 rounded-lg hover:bg-white/10 hover:text-white transition-all font-medium flex items-center gap-2 shadow-lg shadow-black/20 relative"
+          >
+            <FiShield className="w-4 h-4 text-fuchsia-300" />
+            <span className="hidden sm:inline">KYC</span>
+            {pendingKycCount > 0 && (
+              <span className="absolute -top-1 -right-1 min-w-[1.25rem] h-5 px-1 flex items-center justify-center rounded-full bg-fuchsia-500 text-[10px] font-black text-white">
+                {pendingKycCount > 99 ? "99+" : pendingKycCount}
+              </span>
+            )}
+          </button>
           <button
             onClick={() => navigate("/admin/audit-logs")}
             className="px-4 py-2 bg-white/5 text-slate-300 border border-white/10 rounded-lg hover:bg-white/10 hover:text-white transition-all font-medium flex items-center gap-2 shadow-lg shadow-black/20"
@@ -431,7 +446,7 @@ export default function AdminDashboard() {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.5 }}
-          className="grid grid-cols-1 md:grid-cols-3 gap-6"
+          className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6"
         >
           <div
             className="glass-card rounded-2xl p-6 cursor-pointer group hover:-translate-y-1 transition-all duration-300"
@@ -442,6 +457,21 @@ export default function AdminDashboard() {
               <h3 className="font-bold text-lg text-white">User Management</h3>
             </div>
             <p className="text-sm text-slate-400">View, edit, block, or delete platform users</p>
+          </div>
+
+          <div
+            className="glass-card rounded-2xl p-6 cursor-pointer group hover:-translate-y-1 transition-all duration-300 border border-fuchsia-500/20"
+            onClick={() => navigate("/admin/kyc-review")}
+          >
+            <div className="flex items-center gap-4 mb-3">
+              <div className="p-3 bg-fuchsia-500/20 text-fuchsia-300 rounded-lg group-hover:scale-110 transition-transform"><FiShield className="w-6 h-6"/></div>
+              <h3 className="font-bold text-lg text-white">KYC review</h3>
+            </div>
+            <p className="text-sm text-slate-400">
+              {pendingKycCount > 0
+                ? `${pendingKycCount} pending submission${pendingKycCount === 1 ? "" : "s"}`
+                : "Open decrypted documents and approve or reject"}
+            </p>
           </div>
 
           <div

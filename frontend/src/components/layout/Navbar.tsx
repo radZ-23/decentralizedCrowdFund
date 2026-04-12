@@ -7,9 +7,9 @@ import WalletConnectButton from '../ui/WalletConnectButton';
 
 export default function Navbar() {
   const navigate = useNavigate();
-  const { user, logout } = useAuth();
+  const { user, token, logout } = useAuth();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const isAuthenticated = !!localStorage.getItem('token');
+  const isAuthenticated = Boolean(token ?? localStorage.getItem('token'));
 
   const handleLogout = () => {
     logout();
@@ -17,13 +17,25 @@ export default function Navbar() {
     setIsMenuOpen(false);
   };
 
-  const navLinks = isAuthenticated ? [
-    { to: '/dashboard', label: 'Dashboard' },
-    { to: '/campaigns', label: 'Campaigns' },
-    user?.role === 'patient' && { to: '/create-campaign', label: 'Create Campaign' },
-    user?.role === 'hospital' && { to: '/milestones', label: 'Milestones' },
-    user?.role === 'admin' && { to: '/admin/dashboard', label: 'Admin' },
-  ].filter(Boolean) as { to: string; label: string }[] : [];
+  const navLinks = isAuthenticated
+    ? (
+        [
+          { to: '/dashboard', label: 'Dashboard' },
+          { to: '/campaigns', label: 'Campaigns' },
+          user?.role === 'donor' && { to: '/my-donations', label: 'My donations' },
+          user?.role === 'donor' && { to: '/transactions', label: 'Activity' },
+          user?.role === 'patient' && { to: '/create-campaign', label: 'Create campaign' },
+          user?.role === 'patient' && { to: '/my-campaigns', label: 'My campaigns' },
+          user?.role === 'patient' && { to: '/analytics', label: 'Analytics' },
+          user?.role === 'hospital' && { to: '/milestones', label: 'Milestones' },
+          user?.role === 'hospital' && { to: '/hospital-profile', label: 'Hospital profile' },
+          user?.role !== 'admin' && { to: '/kyc-submission', label: 'KYC' },
+          user?.role === 'admin' && { to: '/admin/dashboard', label: 'Admin' },
+          user?.role === 'admin' && { to: '/admin/kyc-review', label: 'KYC review' },
+          user?.role === 'admin' && { to: '/admin/campaign-review', label: 'Review' },
+        ].filter(Boolean) as { to: string; label: string }[]
+      )
+    : [];
 
   return (
     <nav className="bg-slate-900/80 backdrop-blur-lg border-b border-white/10 sticky top-0 z-50">
@@ -40,7 +52,7 @@ export default function Navbar() {
               <RouterLink
                 key={link.to}
                 to={link.to}
-                className="text-slate-300 hover:text-white font-medium transition-colors"
+                className="text-slate-300 hover:text-white font-medium transition-colors rounded-md px-1 py-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-purple-500/60"
               >
                 {link.label}
               </RouterLink>
@@ -94,8 +106,11 @@ export default function Navbar() {
 
           {/* Mobile menu button */}
           <button
+            type="button"
+            aria-expanded={isMenuOpen}
+            aria-label={isMenuOpen ? 'Close menu' : 'Open menu'}
             onClick={() => setIsMenuOpen(!isMenuOpen)}
-            className="md:hidden p-2 text-slate-300 hover:text-white"
+            className="md:hidden p-2 rounded-lg text-slate-300 hover:text-white hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-purple-500/60"
           >
             {isMenuOpen ? <FiX className="w-6 h-6" /> : <FiMenu className="w-6 h-6" />}
           </button>

@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { FiUsers, FiSearch, FiShieldOff, FiTrash2, FiUserCheck, FiFilter } from "react-icons/fi";
+import { FiUsers, FiSearch, FiShield, FiShieldOff, FiTrash2, FiUserCheck, FiFilter } from "react-icons/fi";
 import api from "../services/api";
 
 interface User {
@@ -51,16 +51,6 @@ export default function AdminUsers() {
     }
   };
 
-  const approveKyc = async (userId: string) => {
-    if(!confirm("Are you sure you want to verify this institution? This will grant them blockchain escrow release authority on the network.")) return;
-    try {
-      await api.put(`/api/admin/users/${userId}`, { kycStatus: 'approved' });
-      fetchUsers();
-    } catch (err: any) {
-      alert(err.response?.data?.error || "Failed to approve KYC");
-    }
-  };
-
   const getRoleBadge = (role: string) => {
     switch (role) {
       case 'admin': return "bg-rose-500/20 text-rose-300 border-rose-500/30";
@@ -85,7 +75,17 @@ export default function AdminUsers() {
             <h1 className="text-3xl sm:text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-cyan-400">
               User Governance
             </h1>
-            <p className="text-slate-400 mt-2 font-medium">Manage all platform accounts, roles, and access controls</p>
+            <p className="text-slate-400 mt-2 font-medium">
+              Manage accounts and roles. KYC approval is only from{" "}
+              <button
+                type="button"
+                onClick={() => navigate("/admin/kyc-review")}
+                className="text-fuchsia-400 hover:text-fuchsia-300 underline underline-offset-2 font-semibold"
+              >
+                KYC review
+              </button>{" "}
+              after documents are checked.
+            </p>
           </motion.div>
           <motion.button
             initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }}
@@ -173,9 +173,16 @@ export default function AdminUsers() {
                           {u.isActive ? (
                             <div className="flex flex-col gap-1">
                               <span className="flex items-center gap-1.5 text-xs font-bold text-emerald-400"><FiUserCheck/> Active</span>
-                              {u.role === 'hospital' && (
+                              {(u.role === "hospital" || u.kyc) && (
                                 <span className="text-[10px] font-black uppercase text-indigo-300">
-                                  KYC: {u.kyc?.status === 'approved' ? 'Verified' : 'Pending'}
+                                  KYC:{" "}
+                                  {u.kyc?.status === "approved"
+                                    ? "Verified"
+                                    : u.kyc?.status === "pending"
+                                      ? "Pending review"
+                                      : u.kyc?.status === "rejected"
+                                        ? "Rejected"
+                                        : "Not verified"}
                                 </span>
                               )}
                             </div>
@@ -184,15 +191,31 @@ export default function AdminUsers() {
                           )}
                         </td>
                         <td className="px-6 py-4 text-right flex justify-end gap-2">
-                          {u.isActive && u.role === 'hospital' && u.kyc?.status !== 'approved' && (
+                          {u.isActive && u.kyc?.status === "pending" && (
                             <button
-                              onClick={() => approveKyc(u._id)}
-                              className="px-3 py-1.5 bg-emerald-500/10 text-emerald-400 font-bold hover:bg-emerald-500 hover:text-white text-xs rounded-lg transition-all border border-emerald-500/20"
-                              title="Verify KYC"
+                              type="button"
+                              onClick={() => navigate("/admin/kyc-review")}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-fuchsia-500/10 text-fuchsia-300 font-bold hover:bg-fuchsia-500/20 text-xs rounded-lg transition-all border border-fuchsia-500/25"
+                              title="Approve or reject only after opening documents on the KYC review page"
                             >
-                              Verify KYC
+                              <FiShield className="w-3.5 h-3.5" />
+                              Review KYC
                             </button>
                           )}
+                          {u.isActive &&
+                            u.role === "hospital" &&
+                            u.kyc?.status !== "approved" &&
+                            u.kyc?.status !== "pending" && (
+                              <button
+                                type="button"
+                                onClick={() => navigate("/admin/kyc-review")}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white/5 text-slate-300 font-bold hover:bg-white/10 text-xs rounded-lg transition-all border border-white/10"
+                                title="If they submitted documents, process them under KYC review"
+                              >
+                                <FiShield className="w-3.5 h-3.5" />
+                                KYC queue
+                              </button>
+                            )}
                           {u.isActive && u.role !== 'admin' && (
                             <button
                               onClick={() => deactivateUser(u._id)}

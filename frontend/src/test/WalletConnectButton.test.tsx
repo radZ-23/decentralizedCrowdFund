@@ -7,18 +7,31 @@ vi.mock('../utils/web3', () => ({
   connectWallet: vi.fn(),
   getCurrentWallet: vi.fn(),
   onAccountChanged: vi.fn(),
+  onNetworkChanged: vi.fn(),
   removeListeners: vi.fn(),
+  isMetaMaskInstalled: vi.fn(() => true),
 }));
 
-import { connectWallet, getCurrentWallet, onAccountChanged, removeListeners } from '../utils/web3';
+import {
+  connectWallet,
+  getCurrentWallet,
+  onAccountChanged,
+  onNetworkChanged,
+  removeListeners,
+  isMetaMaskInstalled,
+} from '../utils/web3';
 
 describe('WalletConnectButton', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(isMetaMaskInstalled).mockReturnValue(true);
     localStorage.clear();
     // Reset window.ethereum
     Object.defineProperty(window, 'ethereum', {
-      value: { isMetaMask: true },
+      value: {
+        isMetaMask: true,
+        request: vi.fn().mockResolvedValue('0x539'),
+      },
       writable: true,
     });
   });
@@ -30,6 +43,7 @@ describe('WalletConnectButton', () => {
   it('renders connect button when no wallet is connected', async () => {
     vi.mocked(getCurrentWallet).mockResolvedValue(null);
     vi.mocked(onAccountChanged).mockImplementation(() => {});
+    vi.mocked(onNetworkChanged).mockImplementation(() => {});
     vi.mocked(removeListeners).mockImplementation(() => {});
 
     render(<WalletConnectButton />);
@@ -42,6 +56,7 @@ describe('WalletConnectButton', () => {
   it('shows connecting state when connecting', async () => {
     vi.mocked(getCurrentWallet).mockResolvedValue(null);
     vi.mocked(onAccountChanged).mockImplementation(() => {});
+    vi.mocked(onNetworkChanged).mockImplementation(() => {});
     vi.mocked(removeListeners).mockImplementation(() => {});
     vi.mocked(connectWallet).mockImplementation(() => new Promise((resolve) => setTimeout(() => resolve('0x123'), 100)));
 
@@ -58,6 +73,7 @@ describe('WalletConnectButton', () => {
     const mockAddress = '0x1234567890abcdef1234567890abcdef12345678';
     vi.mocked(getCurrentWallet).mockResolvedValue(mockAddress);
     vi.mocked(onAccountChanged).mockImplementation(() => {});
+    vi.mocked(onNetworkChanged).mockImplementation(() => {});
     vi.mocked(removeListeners).mockImplementation(() => {});
 
     render(<WalletConnectButton />);
@@ -73,6 +89,7 @@ describe('WalletConnectButton', () => {
     const mockAddress = '0x1234567890abcdef1234567890abcdef12345678';
     vi.mocked(getCurrentWallet).mockResolvedValue(null);
     vi.mocked(onAccountChanged).mockImplementation(() => {});
+    vi.mocked(onNetworkChanged).mockImplementation(() => {});
     vi.mocked(removeListeners).mockImplementation(() => {});
     vi.mocked(connectWallet).mockResolvedValue(mockAddress);
 
@@ -88,6 +105,7 @@ describe('WalletConnectButton', () => {
   it('shows error message when connection fails', async () => {
     vi.mocked(getCurrentWallet).mockResolvedValue(null);
     vi.mocked(onAccountChanged).mockImplementation(() => {});
+    vi.mocked(onNetworkChanged).mockImplementation(() => {});
     vi.mocked(removeListeners).mockImplementation(() => {});
     vi.mocked(connectWallet).mockRejectedValue(new Error('User rejected'));
 
@@ -103,6 +121,7 @@ describe('WalletConnectButton', () => {
   it('renders in compact mode', async () => {
     vi.mocked(getCurrentWallet).mockResolvedValue(null);
     vi.mocked(onAccountChanged).mockImplementation(() => {});
+    vi.mocked(onNetworkChanged).mockImplementation(() => {});
     vi.mocked(removeListeners).mockImplementation(() => {});
 
     render(<WalletConnectButton compact />);
@@ -113,14 +132,15 @@ describe('WalletConnectButton', () => {
   });
 
   it('has mock connect button when MetaMask not installed', async () => {
-    // Simulate no window.ethereum
     Object.defineProperty(window, 'ethereum', {
       value: undefined,
       writable: true,
     });
 
+    vi.mocked(isMetaMaskInstalled).mockReturnValue(false);
     vi.mocked(getCurrentWallet).mockResolvedValue(null);
     vi.mocked(onAccountChanged).mockImplementation(() => {});
+    vi.mocked(onNetworkChanged).mockImplementation(() => {});
     vi.mocked(removeListeners).mockImplementation(() => {});
 
     render(<WalletConnectButton />);

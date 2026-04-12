@@ -2,8 +2,9 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import api from "../services/api";
-import { FiSearch, FiArrowRight, FiShield, FiAlertTriangle, FiCheckCircle } from "react-icons/fi";
+import { FiSearch, FiArrowRight, FiShield, FiAlertTriangle, FiCheckCircle, FiEdit2 } from "react-icons/fi";
 import ThemeToggle from "../components/ui/ThemeToggle";
+import { useAuth } from "../contexts/AuthContext";
 
 interface Campaign {
   _id: string;
@@ -14,9 +15,13 @@ interface Campaign {
   status: string;
   riskScore?: number;
   riskCategory?: string;
-  patientId: {
-    name: string;
-  };
+  patientId: string | { _id?: string; name?: string };
+}
+
+function campaignPatientId(c: Campaign): string {
+  if (!c.patientId) return "";
+  if (typeof c.patientId === "string") return c.patientId;
+  return String(c.patientId._id || "");
 }
 
 export default function Campaigns() {
@@ -25,6 +30,14 @@ export default function Campaigns() {
   const [error, setError] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const navigate = useNavigate();
+  const { user, token } = useAuth();
+
+  const canEditCampaign = (c: Campaign) => {
+    if (!token || !user) return false;
+    if (user.role === "admin") return true;
+    if (user.role === "patient" && campaignPatientId(c) === user.id) return true;
+    return false;
+  };
 
   useEffect(() => {
     fetchCampaigns();
@@ -81,7 +94,9 @@ export default function Campaigns() {
   const filteredCampaigns = campaigns.filter(c => 
     c.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
     c.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (c.patientId?.name || "").toLowerCase().includes(searchTerm.toLowerCase())
+    (typeof c.patientId === "object" ? c.patientId?.name || "" : "")
+      .toLowerCase()
+      .includes(searchTerm.toLowerCase())
   );
 
   const containerVariants = {
@@ -177,7 +192,7 @@ export default function Campaigns() {
                   onClick={() => navigate(`/campaign/${campaign._id}`)}
                 >
                   <div className="p-6 flex-1 flex flex-col">
-                    <div className="flex justify-between items-start mb-4">
+                    <div className="flex justify-between items-start mb-4 gap-2">
                       {campaign.riskCategory ? (
                         <div className={`px-2.5 py-1 rounded-md border text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 ${riskStyles.bg} ${riskStyles.text} ${riskStyles.border}`}>
                           {riskStyles.icon}
@@ -188,8 +203,23 @@ export default function Campaigns() {
                           Unverified
                         </div>
                       )}
-                      <div className="text-xs font-medium text-slate-500 bg-white/5 px-2 py-1 rounded border border-white/5">
-                        {campaign.status}
+                      <div className="flex items-center gap-2 shrink-0">
+                        {canEditCampaign(campaign) && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              navigate(`/campaign/${campaign._id}/edit`);
+                            }}
+                            className="p-2 rounded-lg bg-white/10 hover:bg-purple-500/30 text-slate-300 hover:text-white border border-white/10 transition-colors"
+                            title="Edit campaign"
+                          >
+                            <FiEdit2 className="w-4 h-4" />
+                          </button>
+                        )}
+                        <div className="text-xs font-medium text-slate-500 bg-white/5 px-2 py-1 rounded border border-white/5">
+                          {campaign.status}
+                        </div>
                       </div>
                     </div>
 
@@ -204,7 +234,12 @@ export default function Campaigns() {
                     <div className="mt-auto space-y-4">
                       {/* Sub-info */}
                       <div className="flex justify-between items-center text-sm">
-                        <span className="text-slate-500 font-medium">By {campaign.patientId?.name || "Patient"}</span>
+                        <span className="text-slate-500 font-medium">
+                          By{" "}
+                          {typeof campaign.patientId === "object"
+                            ? campaign.patientId?.name || "Patient"
+                            : "Patient"}
+                        </span>
                       </div>
 
                       {/* Progress Bar Container */}

@@ -202,6 +202,11 @@
 /* ── Noise texture overlay: hide in light mode ── */
 .light .mix-blend-overlay { opacity: 0.05 !important; }
 
+/* Auth pages: divider chip behind "or continue with" */
+.light .auth-divider-chip {
+  background-color: #f8fafc !important;
+}
+
 /* ── Gradient text: ensure still readable ── */
 .light .text-transparent { color: transparent !important; }
 

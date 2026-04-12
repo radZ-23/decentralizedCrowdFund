@@ -190,7 +190,7 @@ export default function Login() {
           <div className="mt-8 text-center space-y-4">
             <div className="relative flex items-center justify-center">
               <div className="absolute inset-x-0 h-px bg-white/10" />
-              <span className="relative z-10 px-4 bg-[#14122d] text-xs font-medium text-slate-400 uppercase tracking-wider">or continue with</span>
+              <span className="auth-divider-chip relative z-10 px-4 bg-[#14122d] text-xs font-medium text-slate-400 uppercase tracking-wider">or continue with</span>
             </div>
             
             <button

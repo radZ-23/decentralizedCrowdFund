@@ -475,7 +475,15 @@ router.get('/campaigns/:id/documents/:docIndex', async (req, res) => {
     // Decrypt and serve the file
     const decryptedBuffer = decryptFile(filePath);
     const fileName = path.basename(doc.url);
-    const contentType = fileName.endsWith('.pdf') ? 'application/pdf' : 'image/jpeg';
+    const ext = path.extname(fileName).toLowerCase();
+    const contentType =
+      ext === '.pdf'
+        ? 'application/pdf'
+        : ext === '.png'
+          ? 'image/png'
+          : ext === '.webp'
+            ? 'image/webp'
+            : 'image/jpeg';
 
     res.setHeader('Content-Type', contentType);
     res.setHeader('Content-Disposition', `inline; filename="${fileName}"`);

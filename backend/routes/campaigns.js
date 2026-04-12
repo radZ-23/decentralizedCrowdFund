@@ -23,6 +23,7 @@ const { encryptFile } = require('../utils/encryption');
 const { sendCampaignApprovalEmail, sendCampaignRejectionEmail } = require('../utils/emailService');
 const logger = require('../utils/logger');
 const { getIO } = require('../utils/socket');
+const { isHospitalVerified } = require('../utils/hospitalVerification');
 
 const router = express.Router();
 
@@ -62,14 +63,18 @@ router.post('/', authMiddleware, roleMiddleware(['patient']), upload.array('docu
   try {
     const { title, description, targetAmount, hospitalId, medicalDetails, milestones } = req.body;
 
-    // Validation
-    if (!title || !description || !targetAmount) {
-      return res.status(400).json({ error: 'Title, description, and target amount are required' });
+    const cleanTitle = String(title || '').trim();
+    const cleanDescription = String(description || '').trim();
+
+    if (!cleanTitle || !cleanDescription) {
+      return res.status(400).json({ error: 'Title and description are required' });
     }
 
-    if (parseFloat(targetAmount) <= 0) {
+    if (!targetAmount || parseFloat(targetAmount) <= 0) {
       return res.status(400).json({ error: 'Target amount must be greater than 0' });
     }
+
+    const targetNum = parseFloat(targetAmount);
 
     // Process uploaded documents
     const documents = [];
@@ -95,7 +100,7 @@ router.post('/', authMiddleware, roleMiddleware(['patient']), upload.array('docu
     let hospitalVerified = false;
     if (hospitalId) {
       const hospitalUser = await User.findById(hospitalId);
-      if (hospitalUser && hospitalUser.verified) {
+      if (hospitalUser && isHospitalVerified(hospitalUser)) {
         hospitalVerified = true;
       }
     }
@@ -185,23 +190,65 @@ router.post('/', authMiddleware, roleMiddleware(['patient']), upload.array('docu
       }
     }
 
-    // Parse milestones if provided
-    const parsedMilestones = milestones ? JSON.parse(milestones) : [];
+    let parsedMilestones = [];
+    try {
+      parsedMilestones = milestones ? JSON.parse(milestones) : [];
+    } catch (e) {
+      return res.status(400).json({ error: 'Invalid milestones payload' });
+    }
+
+    const withDesc = (Array.isArray(parsedMilestones) ? parsedMilestones : [])
+      .map((m) => ({
+        description: String(m.description || '').trim(),
+        targetAmount: Number(m.targetAmount),
+      }))
+      .filter((m) => m.description.length > 0);
+
+    if (withDesc.length === 0) {
+      return res.status(400).json({
+        error:
+          'At least one milestone with a description is required. Milestone ETH amounts can be left empty on the form to split your target evenly.',
+      });
+    }
+
+    const allAmountsMissing = withDesc.every((m) => !Number.isFinite(m.targetAmount) || m.targetAmount <= 0);
+    let normalizedMilestones = withDesc;
+    if (allAmountsMissing) {
+      const n = withDesc.length;
+      const base = targetNum / n;
+      let sum = 0;
+      normalizedMilestones = withDesc.map((m, i) => {
+        if (i < n - 1) {
+          const amt = Math.round(base * 1e6) / 1e6;
+          sum += amt;
+          return { ...m, targetAmount: amt };
+        }
+        return { ...m, targetAmount: Math.round((targetNum - sum) * 1e6) / 1e6 };
+      });
+    } else {
+      normalizedMilestones = withDesc.filter((m) => Number.isFinite(m.targetAmount) && m.targetAmount > 0);
+      if (normalizedMilestones.length === 0) {
+        return res.status(400).json({
+          error: 'Each milestone must have a positive ETH amount, or leave all amounts empty to auto-split the campaign target.',
+        });
+      }
+    }
 
     // Create campaign
     const campaign = await Campaign.create({
-      title,
-      description,
+      title: cleanTitle,
+      description: cleanDescription,
       patientId: req.user.userId,
       hospitalId: hospitalId || null,
-      targetAmount: parseFloat(targetAmount),
+      targetAmount: targetNum,
       raisedAmount: 0,
       status: campaignStatus,
       documents,
       riskAssessmentId,
       medicalDetails: medicalDetails ? JSON.parse(medicalDetails) : {},
-      milestones: parsedMilestones.map((m) => ({
-        ...m,
+      milestones: normalizedMilestones.map((m) => ({
+        description: m.description,
+        targetAmount: m.targetAmount,
         status: 'pending',
       })),
     });
@@ -219,7 +266,7 @@ router.post('/', authMiddleware, roleMiddleware(['patient']), upload.array('docu
       action: 'campaign_created',
       entityType: 'campaign',
       entityId: campaign._id,
-      details: { title, status: campaignStatus },
+      details: { title: cleanTitle, status: campaignStatus },
       status: 'success',
     });
 
@@ -228,7 +275,7 @@ router.post('/', authMiddleware, roleMiddleware(['patient']), upload.array('docu
     if (io) {
       io.emit('campaign:created', {
         campaignId: campaign._id,
-        title,
+        title: cleanTitle,
         status: campaignStatus,
         patientId: req.user.userId,
         createdAt: new Date(),
@@ -323,14 +370,118 @@ router.put('/:id', authMiddleware, roleMiddleware(['patient', 'admin']), async (
       return res.status(403).json({ error: 'Not authorized to update this campaign' });
     }
 
-    const { title, description, targetAmount, medicalDetails, milestones } = req.body;
+    const { title, description, targetAmount, medicalDetails, milestones, hospitalId } = req.body;
+
+    const hasContract = Boolean(campaign.smartContractAddress);
 
     const updateData = {};
-    if (title) updateData.title = title;
-    if (description) updateData.description = description;
-    if (targetAmount) updateData.targetAmount = parseFloat(targetAmount);
-    if (medicalDetails) updateData['medicalDetails'] = JSON.parse(medicalDetails);
-    if (milestones) updateData.milestones = JSON.parse(milestones);
+    if (title !== undefined && title !== null) {
+      const t = String(title).trim();
+      if (!t) {
+        return res.status(400).json({ error: 'Title cannot be empty' });
+      }
+      updateData.title = t;
+    }
+    if (description !== undefined && description !== null) {
+      const d = String(description).trim();
+      if (!d) {
+        return res.status(400).json({ error: 'Description cannot be empty' });
+      }
+      updateData.description = d;
+    }
+
+    if (targetAmount !== undefined && targetAmount !== null && targetAmount !== '') {
+      const ta = parseFloat(targetAmount);
+      if (Number.isNaN(ta) || ta <= 0) {
+        return res.status(400).json({ error: 'Target amount must be greater than 0' });
+      }
+      if (hasContract && ta !== campaign.targetAmount) {
+        return res.status(400).json({
+          error: 'Cannot change target amount after the smart contract is deployed.',
+        });
+      }
+      updateData.targetAmount = ta;
+    }
+
+    if (medicalDetails !== undefined && medicalDetails !== null && medicalDetails !== '') {
+      try {
+        updateData.medicalDetails =
+          typeof medicalDetails === 'string' ? JSON.parse(medicalDetails) : medicalDetails;
+      } catch (e) {
+        return res.status(400).json({ error: 'Invalid medicalDetails JSON' });
+      }
+    }
+
+    if (milestones !== undefined && milestones !== null && milestones !== '') {
+      if (hasContract) {
+        return res.status(400).json({
+          error: 'Cannot change milestones after the smart contract is deployed.',
+        });
+      }
+      let parsed;
+      try {
+        parsed = typeof milestones === 'string' ? JSON.parse(milestones) : milestones;
+      } catch (e) {
+        return res.status(400).json({ error: 'Invalid milestones JSON' });
+      }
+      if (!Array.isArray(parsed)) {
+        return res.status(400).json({ error: 'milestones must be an array' });
+      }
+      const effectiveTarget =
+        updateData.targetAmount !== undefined ? updateData.targetAmount : campaign.targetAmount;
+      const withDesc = parsed
+        .map((m) => ({
+          description: String(m.description || '').trim(),
+          targetAmount: Number(m.targetAmount),
+        }))
+        .filter((m) => m.description.length > 0);
+      if (withDesc.length === 0) {
+        return res.status(400).json({
+          error:
+            'At least one milestone with a description is required, or omit milestones to leave them unchanged.',
+        });
+      }
+      const allAmountsMissing = withDesc.every((m) => !Number.isFinite(m.targetAmount) || m.targetAmount <= 0);
+      let normalizedMilestones;
+      if (allAmountsMissing) {
+        const n = withDesc.length;
+        const base = effectiveTarget / n;
+        let sum = 0;
+        normalizedMilestones = withDesc.map((m, i) => {
+          if (i < n - 1) {
+            const amt = Math.round(base * 1e6) / 1e6;
+            sum += amt;
+            return { description: m.description, targetAmount: amt, status: 'pending' };
+          }
+          return {
+            description: m.description,
+            targetAmount: Math.round((effectiveTarget - sum) * 1e6) / 1e6,
+            status: 'pending',
+          };
+        });
+      } else {
+        normalizedMilestones = withDesc
+          .filter((m) => Number.isFinite(m.targetAmount) && m.targetAmount > 0)
+          .map((m) => ({ ...m, status: 'pending' }));
+        if (normalizedMilestones.length === 0) {
+          return res.status(400).json({
+            error:
+              'Each milestone needs a positive ETH amount, or leave all amounts empty to auto-split the target.',
+          });
+        }
+      }
+      updateData.milestones = normalizedMilestones;
+    }
+
+    if (hospitalId !== undefined && hospitalId !== null) {
+      updateData.hospitalId = hospitalId === '' ? null : hospitalId;
+    }
+
+    const fieldCount = Object.keys(updateData).length;
+    if (fieldCount === 0) {
+      return res.status(400).json({ error: 'No valid fields to update' });
+    }
+
     updateData.updatedAt = new Date();
 
     const updatedCampaign = await Campaign.findByIdAndUpdate(

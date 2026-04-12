@@ -4,7 +4,7 @@ import { motion } from "framer-motion";
 import api from "../services/api";
 import { 
   FiArrowLeft, FiShield, FiHeart, FiCheckCircle, 
-  FiFileText, FiUser, FiActivity, FiDollarSign, FiClock, FiAlertTriangle
+  FiFileText, FiUser, FiActivity, FiDollarSign, FiClock, FiAlertTriangle, FiEdit2
 } from "react-icons/fi";
 import { ethers } from "ethers";
 import { useAuth } from "../contexts/AuthContext";
@@ -19,7 +19,8 @@ interface Campaign {
   riskScore?: number;
   riskCategory?: string;
   smartContractAddress?: string;
-  patientId?: {
+  patientId?: string | {
+    _id?: string;
     name: string;
     walletAddress?: string;
   };
@@ -286,6 +287,15 @@ export default function CampaignDetail() {
 
   const progress = getProgressPercentage(campaign.raisedAmount, campaign.targetAmount);
 
+  const ownerPatientId =
+    campaign.patientId == null
+      ? ""
+      : typeof campaign.patientId === "string"
+        ? campaign.patientId
+        : String(campaign.patientId._id || "");
+  const canEditCampaign =
+    Boolean(user && (user.role === "admin" || (user.role === "patient" && ownerPatientId === user.id)));
+
   return (
     <div className="min-h-screen relative overflow-hidden pb-20">
       {/* Background Ambience */}
@@ -303,9 +313,23 @@ export default function CampaignDetail() {
           <FiArrowLeft className="w-5 h-5" />
           <span className="font-medium hidden sm:inline">Back to Campaigns</span>
         </motion.button>
-        <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }}>
-          <h2 className="text-lg font-bold text-white tracking-tight">MedTrustFund</h2>
-        </motion.div>
+        <div className="flex items-center gap-3">
+          {canEditCampaign && (
+            <motion.button
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              type="button"
+              onClick={() => navigate(`/campaign/${id}/edit`)}
+              className="flex items-center gap-2 px-3 py-2 rounded-xl bg-purple-500/20 hover:bg-purple-500/30 text-purple-200 text-sm font-semibold border border-purple-500/30"
+            >
+              <FiEdit2 className="w-4 h-4" />
+              <span className="hidden sm:inline">Edit</span>
+            </motion.button>
+          )}
+          <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }}>
+            <h2 className="text-lg font-bold text-white tracking-tight">MedTrustFund</h2>
+          </motion.div>
+        </div>
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-10 mt-8 relative z-10">
@@ -362,7 +386,9 @@ export default function CampaignDetail() {
                   <div>
                     <p className="text-xs text-slate-500 uppercase font-bold tracking-wider mb-1">Beneficiary</p>
                     <p className="text-white font-medium">
-                      {campaign.patientId?.name || "Anonymous Patient"}
+                      {typeof campaign.patientId === "object" && campaign.patientId?.name
+                        ? campaign.patientId.name
+                        : "Anonymous Patient"}
                     </p>
                   </div>
                 </div>
@@ -661,12 +687,27 @@ export default function CampaignDetail() {
                   <p className="text-xs text-slate-500 mt-1 mb-4">Donations are currently disabled.</p>
                   
                   {campaign.status === "active" && user?.role === "admin" && (
+                    <>
+                  {(!campaign.milestones || campaign.milestones.length === 0) && (
+                    <p className="text-xs text-rose-300/90 text-left mb-3 leading-relaxed">
+                      No milestones on this campaign (common if it was created before milestone fixes). Deploy is blocked until milestones exist — create a new campaign from the patient flow or update this record in the database.
+                    </p>
+                  )}
+                  {campaign.milestones && campaign.milestones.length > 0 && !campaign.hospitalId && (
+                    <p className="text-xs text-amber-200/90 text-left mb-3 leading-relaxed">
+                      Assign a verified hospital (with a wallet on their profile) before deploying escrow — the contract needs a hospital address.
+                    </p>
+                  )}
                     <motion.button
                       whileHover={{ scale: 1.02 }}
                       whileTap={{ scale: 0.98 }}
                       onClick={deployContract}
-                      disabled={deployingContract}
-                      className="w-full px-4 py-3 bg-gradient-to-r from-emerald-500/20 to-teal-500/20 hover:from-emerald-500 hover:to-teal-500 text-emerald-300 hover:text-white border border-emerald-500/30 font-semibold rounded-xl transition-all shadow-[0_0_15px_rgba(16,185,129,0.2)] flex items-center justify-center gap-2 text-sm disabled:opacity-50"
+                      disabled={
+                        deployingContract ||
+                        !campaign.milestones?.length ||
+                        !campaign.hospitalId
+                      }
+                      className="w-full px-4 py-3 bg-gradient-to-r from-emerald-500/20 to-teal-500/20 hover:from-emerald-500 hover:to-teal-500 text-emerald-300 hover:text-white border border-emerald-500/30 font-semibold rounded-xl transition-all shadow-[0_0_15px_rgba(16,185,129,0.2)] flex items-center justify-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       {deployingContract ? (
                         <>
@@ -680,6 +721,7 @@ export default function CampaignDetail() {
                         </>
                       )}
                     </motion.button>
+                    </>
                   )}
                 </div>
               )}

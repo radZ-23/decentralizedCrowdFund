@@ -66,23 +66,26 @@ app.use(mongoSanitize()); // Prevent NoSQL injection
 app.use(xss()); // Sanitise user input against XSS
 app.use(auditLogMiddleware);
 
-// Rate limiting — 100 requests per 15 min per IP
+// Rate limiting — default 500 req / 15 min per IP (override with API_RATE_LIMIT_MAX; disabled in Jest)
+const skipRateLimit =
+  process.env.NODE_ENV === "test" || process.env.JEST_WORKER_ID !== undefined;
+const apiRateLimitMax = parseInt(process.env.API_RATE_LIMIT_MAX || "500", 10);
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 100000,
-  message: { error: 'Too many requests, please try again later.' },
+  max: Number.isFinite(apiRateLimitMax) && apiRateLimitMax > 0 ? apiRateLimitMax : 500,
+  skip: () => skipRateLimit,
+  message: { error: "Too many requests, please try again later." },
   standardHeaders: true,
   legacyHeaders: false,
 });
-app.use('/api/', apiLimiter);
+app.use("/api/", apiLimiter);
 
 // Static files for uploads
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 // MongoDB Connection
 const mongoUri = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/medtrust";
-const isTestEnv =
-  process.env.NODE_ENV === "test" || process.env.JEST_WORKER_ID !== undefined;
+const isTestEnv = skipRateLimit;
 
 mongoose
   .connect(mongoUri)

@@ -323,6 +323,9 @@ router.post('/:id/approve', authenticate, authorize('admin'), async (req, res) =
         approvedAt: new Date()
       };
       user.role = user.role === 'user' ? 'user' : user.role; // Keep existing role
+      if (user.role === 'hospital') {
+        user.set('profile.verified', true);
+      }
       await user.save();
     }
 
@@ -409,6 +412,9 @@ router.post('/:id/reject', authenticate, authorize('admin'), async (req, res) =>
         kycDocumentId: kycDocument._id,
         rejectedAt: new Date()
       };
+      if (user.role === 'hospital') {
+        user.set('profile.verified', false);
+      }
       await user.save();
     }
 
@@ -479,7 +485,10 @@ router.delete('/:id', authenticate, authorize('admin'), async (req, res) => {
     // Reset user KYC status
     const user = await User.findById(kycDocument.user);
     if (user) {
-      user.kyc = { status: 'not_submitted' };
+      user.kyc = { status: 'pending' };
+      if (user.role === 'hospital') {
+        user.set('profile.verified', false);
+      }
       await user.save();
     }
 

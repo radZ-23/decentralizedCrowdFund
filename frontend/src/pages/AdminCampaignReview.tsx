@@ -7,26 +7,69 @@ import {
 } from 'react-icons/fi';
 import api from '../services/api';
 
+interface PatientRef {
+  _id?: string;
+  name?: string;
+  email?: string;
+}
+
+interface CampaignDoc {
+  type?: string;
+  documentType?: string;
+  url?: string;
+}
+
+interface AiVerificationDetails {
+  ocrConfidence?: number;
+  metadataConsistency?: number;
+  keywordMatch?: number;
+  fileIntegrityScore?: number;
+}
+
+interface RiskData {
+  riskScore?: number;
+  finalRiskScore?: number;
+  riskCategory?: string;
+  recommendation?: string;
+  tamperingScore?: number;
+  aiGeneratedScore?: number;
+  metadataMismatchScore?: number;
+  aiVerificationDetails?: AiVerificationDetails;
+}
+
 interface Campaign {
   _id: string;
   title: string;
   description: string;
   targetAmount: number;
   status: string;
-  riskAssessment?: {
-    finalRiskScore: number;
-    tamperingScore?: number;
-    aiGeneratedScore?: number;
-    metadataMismatchScore?: number;
-    recommendation?: string;
-  };
-  patient?: {
-    _id: string;
-    name?: string;
-    email: string;
-  };
-  documents?: any[];
+  patient?: PatientRef;
+  patientId?: PatientRef;
+  documents?: CampaignDoc[];
+  riskAssessment?: RiskData;
+  riskAssessmentId?: RiskData;
   createdAt: string;
+}
+
+function getPatient(c: Campaign): PatientRef | undefined {
+  return c.patientId || c.patient;
+}
+
+function getRisk(c: Campaign): RiskData | null {
+  const ra = c.riskAssessmentId || c.riskAssessment;
+  if (!ra || typeof ra !== 'object') return null;
+  return ra;
+}
+
+function primaryRiskScore(ra: RiskData): number {
+  const n = ra.riskScore ?? ra.finalRiskScore;
+  return typeof n === 'number' && !Number.isNaN(n) ? n : 0;
+}
+
+function docLabel(doc: CampaignDoc, idx: number): string {
+  const t = doc.type || doc.documentType;
+  if (t) return t.replace(/_/g, ' ');
+  return `Document ${idx + 1}`;
 }
 
 export default function AdminCampaignReview() {
@@ -56,6 +99,30 @@ export default function AdminCampaignReview() {
     }
   };
 
+  const openCampaignDocument = async (campaignId: string, docIndex: number) => {
+    try {
+      const res = await api.get(`/api/admin/campaigns/${campaignId}/documents/${docIndex}`, {
+        responseType: 'blob',
+      });
+      const ctype = res.headers['content-type'] || '';
+      if (ctype.includes('application/json')) {
+        const text = await res.data.text();
+        try {
+          const j = JSON.parse(text);
+          alert(j.error || j.message || 'Could not open document');
+        } catch {
+          alert('Could not open document');
+        }
+        return;
+      }
+      const url = URL.createObjectURL(res.data);
+      window.open(url, '_blank', 'noopener,noreferrer');
+      setTimeout(() => URL.revokeObjectURL(url), 120_000);
+    } catch (err: any) {
+      alert(err.response?.data?.error || 'Failed to load document');
+    }
+  };
+
   const handleDecision = async (campaignId: string, decision: 'approve' | 'reject') => {
     try {
       setActionLoading(true);
@@ -64,7 +131,8 @@ export default function AdminCampaignReview() {
 
       await api.post(`/api/admin/campaigns/${campaignId}/decision`, {
         decision,
-        note: reviewNote,
+        comments: reviewNote || '',
+        overrideRiskScore: true,
       });
 
       setSuccess(`Campaign ${decision}d successfully`);
@@ -108,6 +176,61 @@ export default function AdminCampaignReview() {
     return 'text-rose-400';
   };
 
+  const renderRiskBreakdown = (ra: RiskData) => {
+    const d = ra.aiVerificationDetails;
+    if (d && (d.ocrConfidence != null || d.metadataConsistency != null)) {
+      const rows: { label: string; value: number }[] = [];
+      if (d.ocrConfidence != null) rows.push({ label: 'OCR confidence', value: d.ocrConfidence });
+      if (d.metadataConsistency != null) rows.push({ label: 'Metadata consistency', value: d.metadataConsistency });
+      if (d.keywordMatch != null) rows.push({ label: 'Keyword match', value: d.keywordMatch });
+      if (d.fileIntegrityScore != null) rows.push({ label: 'File integrity', value: d.fileIntegrityScore });
+      return (
+        <div className="space-y-3">
+          {rows.map((row) => (
+            <div key={row.label} className="flex items-center justify-between">
+              <span className="text-sm text-slate-400">{row.label}</span>
+              <span className={`font-bold ${getRiskColor(row.value)}`}>{row.value.toFixed(0)}%</span>
+            </div>
+          ))}
+        </div>
+      );
+    }
+
+    if (
+      ra.tamperingScore != null ||
+      ra.aiGeneratedScore != null ||
+      ra.metadataMismatchScore != null
+    ) {
+      const scale = (v: number) => (v <= 1 ? v * 100 : v);
+      return (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-slate-400">Tampering score</span>
+            <span className={`font-bold ${getRiskColor(scale(ra.tamperingScore || 0))}`}>
+              {scale(ra.tamperingScore || 0).toFixed(0)}%
+            </span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-slate-400">AI-generated score</span>
+            <span className={`font-bold ${getRiskColor(scale(ra.aiGeneratedScore || 0))}`}>
+              {scale(ra.aiGeneratedScore || 0).toFixed(0)}%
+            </span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-slate-400">Metadata mismatch</span>
+            <span className={`font-bold ${getRiskColor(scale(ra.metadataMismatchScore || 0))}`}>
+              {scale(ra.metadataMismatchScore || 0).toFixed(0)}%
+            </span>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <p className="text-sm text-slate-500">No detailed breakdown available for this assessment.</p>
+    );
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-950">
@@ -133,11 +256,12 @@ export default function AdminCampaignReview() {
               <h1 className="text-3xl font-black text-white">Campaign Review</h1>
             </div>
             <p className="text-slate-400 font-medium mt-1">
-              Review and approve/reject high-risk campaigns
+              Review risk, open decrypted documents, then approve or reject
             </p>
           </div>
 
           <button
+            type="button"
             onClick={() => navigate('/admin/dashboard')}
             className="px-6 py-3 bg-white/5 border border-white/10 text-white font-bold rounded-xl hover:bg-white/10 transition-all"
           >
@@ -177,63 +301,74 @@ export default function AdminCampaignReview() {
           </div>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Campaign List */}
             <div className="space-y-4">
               <h2 className="text-lg font-bold text-white mb-4">
                 Pending Campaigns ({pendingCampaigns.length})
               </h2>
               <AnimatePresence>
-                {pendingCampaigns.map((campaign) => (
-                  <motion.div
-                    key={campaign._id}
-                    initial={{ opacity: 0, x: -20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: 20 }}
-                    onClick={() => setSelectedCampaign(campaign)}
-                    className={`glass-card p-5 rounded-2xl border cursor-pointer transition-all ${
-                      selectedCampaign?._id === campaign._id
-                        ? 'border-purple-500/50 shadow-lg shadow-purple-500/10'
-                        : 'border-white/5 hover:border-white/10'
-                    }`}
-                  >
-                    <div className="flex items-start justify-between gap-3 mb-3">
-                      <div className="flex-1">
-                        <h3 className="font-bold text-white text-lg line-clamp-1">
-                          {campaign.title}
-                        </h3>
-                        <p className="text-sm text-slate-400 mt-1 line-clamp-2">
-                          {campaign.description}
-                        </p>
-                      </div>
-                      <FiChevronRight className="w-5 h-5 text-slate-500 flex-shrink-0" />
-                    </div>
-
-                    <div className="flex items-center justify-between flex-wrap gap-3">
-                      <div className="flex items-center gap-3">
-                        <span className="text-xs text-slate-500 font-medium flex items-center gap-1">
-                          <FiUser className="w-3 h-3" />
-                          {campaign.patient?.name || campaign.patient?.email?.split('@')[0]}
-                        </span>
-                        <span className="text-xs text-slate-500 font-medium flex items-center gap-1">
-                          <FiDollarSign className="w-3 h-3" />
-                          {campaign.targetAmount} ETH
-                        </span>
-                      </div>
-                      {campaign.riskAssessment?.finalRiskScore !== undefined && (
-                        <div className="flex items-center gap-2">
-                          <span className={`text-lg font-black ${getRiskColor(campaign.riskAssessment.finalRiskScore)}`}>
-                            {campaign.riskAssessment.finalRiskScore}
-                          </span>
-                          {getRiskBadge(campaign.riskAssessment.finalRiskScore)}
+                {pendingCampaigns.map((campaign) => {
+                  const risk = getRisk(campaign);
+                  const score = risk ? primaryRiskScore(risk) : undefined;
+                  const patient = getPatient(campaign);
+                  return (
+                    <motion.div
+                      key={campaign._id}
+                      initial={{ opacity: 0, x: -20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: 20 }}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => setSelectedCampaign(campaign)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          setSelectedCampaign(campaign);
+                        }
+                      }}
+                      className={`glass-card p-5 rounded-2xl border cursor-pointer transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-purple-500/70 ${
+                        selectedCampaign?._id === campaign._id
+                          ? 'border-purple-500/50 shadow-lg shadow-purple-500/10'
+                          : 'border-white/5 hover:border-white/10'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-3 mb-3">
+                        <div className="flex-1">
+                          <h3 className="font-bold text-white text-lg line-clamp-1">
+                            {campaign.title}
+                          </h3>
+                          <p className="text-sm text-slate-400 mt-1 line-clamp-2">
+                            {campaign.description}
+                          </p>
                         </div>
-                      )}
-                    </div>
-                  </motion.div>
-                ))}
+                        <FiChevronRight className="w-5 h-5 text-slate-500 flex-shrink-0" />
+                      </div>
+
+                      <div className="flex items-center justify-between flex-wrap gap-3">
+                        <div className="flex items-center gap-3">
+                          <span className="text-xs text-slate-500 font-medium flex items-center gap-1">
+                            <FiUser className="w-3 h-3" />
+                            {patient?.name || patient?.email?.split('@')[0] || 'Patient'}
+                          </span>
+                          <span className="text-xs text-slate-500 font-medium flex items-center gap-1">
+                            <FiDollarSign className="w-3 h-3" />
+                            {campaign.targetAmount} ETH
+                          </span>
+                        </div>
+                        {score !== undefined && (
+                          <div className="flex items-center gap-2">
+                            <span className={`text-lg font-black ${getRiskColor(score)}`}>
+                              {score}
+                            </span>
+                            {getRiskBadge(score)}
+                          </div>
+                        )}
+                      </div>
+                    </motion.div>
+                  );
+                })}
               </AnimatePresence>
             </div>
 
-            {/* Review Panel */}
             <div className="lg:sticky lg:top-24 lg:self-start">
               {selectedCampaign ? (
                 <motion.div
@@ -245,14 +380,15 @@ export default function AdminCampaignReview() {
                   <div className="flex items-center justify-between mb-6">
                     <h2 className="text-xl font-bold text-white">Review Campaign</h2>
                     <button
+                      type="button"
                       onClick={() => setSelectedCampaign(null)}
-                      className="p-2 text-slate-400 hover:text-white transition-colors"
+                      className="p-2 text-slate-400 hover:text-white transition-colors rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-purple-500/60"
+                      aria-label="Close panel"
                     >
                       <FiXCircle className="w-5 h-5" />
                     </button>
                   </div>
 
-                  {/* Campaign Details */}
                   <div className="space-y-4 mb-6">
                     <div>
                       <h3 className="font-bold text-white text-lg mb-2">
@@ -271,77 +407,68 @@ export default function AdminCampaignReview() {
                       <div className="p-3 bg-slate-900/50 rounded-xl">
                         <p className="text-xs text-slate-500 font-bold uppercase mb-1">Patient</p>
                         <p className="text-white font-medium">
-                          {selectedCampaign.patient?.name || 'N/A'}
+                          {getPatient(selectedCampaign)?.name || getPatient(selectedCampaign)?.email || 'N/A'}
                         </p>
                       </div>
                     </div>
 
-                    {/* Risk Score Breakdown */}
-                    {selectedCampaign.riskAssessment && (
-                      <div className="p-4 bg-slate-900/50 rounded-xl">
-                        <div className="flex items-center justify-between mb-4">
-                          <h4 className="font-bold text-white">Risk Assessment</h4>
-                          {getRiskBadge(selectedCampaign.riskAssessment.finalRiskScore)}
-                        </div>
-
-                        <div className="space-y-3">
-                          <div className="flex items-center justify-between">
-                            <span className="text-sm text-slate-400">Tampering Score</span>
-                            <span className={`font-bold ${getRiskColor(selectedCampaign.riskAssessment.tamperingScore || 0)}`}>
-                              {((selectedCampaign.riskAssessment.tamperingScore || 0) * 100).toFixed(0)}%
-                            </span>
+                    {(() => {
+                      const ra = getRisk(selectedCampaign);
+                      if (!ra) return null;
+                      const score = primaryRiskScore(ra);
+                      return (
+                        <div className="p-4 bg-slate-900/50 rounded-xl">
+                          <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+                            <h4 className="font-bold text-white">Risk Assessment</h4>
+                            {getRiskBadge(score)}
                           </div>
-                          <div className="flex items-center justify-between">
-                            <span className="text-sm text-slate-400">AI-Generated Score</span>
-                            <span className={`font-bold ${getRiskColor(selectedCampaign.riskAssessment.aiGeneratedScore || 0)}`}>
-                              {((selectedCampaign.riskAssessment.aiGeneratedScore || 0) * 100).toFixed(0)}%
-                            </span>
-                          </div>
-                          <div className="flex items-center justify-between">
-                            <span className="text-sm text-slate-400">Metadata Mismatch</span>
-                            <span className={`font-bold ${getRiskColor(selectedCampaign.riskAssessment.metadataMismatchScore || 0)}`}>
-                              {((selectedCampaign.riskAssessment.metadataMismatchScore || 0) * 100).toFixed(0)}%
-                            </span>
-                          </div>
-                        </div>
-
-                        {selectedCampaign.riskAssessment.recommendation && (
-                          <div className="mt-4 pt-4 border-t border-white/5">
-                            <p className="text-xs text-slate-500 font-bold uppercase mb-1">AI Recommendation</p>
-                            <p className="text-sm text-white font-medium">
-                              {selectedCampaign.riskAssessment.recommendation}
+                          {ra.riskCategory && (
+                            <p className="text-xs text-slate-500 uppercase font-bold mb-3">
+                              Category: <span className="text-slate-300">{ra.riskCategory}</span>
                             </p>
-                          </div>
-                        )}
-                      </div>
-                    )}
+                          )}
+                          {renderRiskBreakdown(ra)}
+                          {ra.recommendation && (
+                            <div className="mt-4 pt-4 border-t border-white/5">
+                              <p className="text-xs text-slate-500 font-bold uppercase mb-1">Recommendation</p>
+                              <p className="text-sm text-white font-medium capitalize">
+                                {ra.recommendation.replace(/_/g, ' ')}
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
 
-                    {/* Documents */}
                     {selectedCampaign.documents && selectedCampaign.documents.length > 0 && (
                       <div>
-                        <h4 className="font-bold text-white mb-2 text-sm">Uploaded Documents</h4>
+                        <h4 className="font-bold text-white mb-2 text-sm flex items-center gap-2">
+                          <FiFileText className="w-4 h-4 text-purple-400" />
+                          Campaign documents
+                        </h4>
+                        <p className="text-xs text-slate-500 mb-3">
+                          Files are encrypted on disk; opens decrypted copy (admin only).
+                        </p>
                         <div className="flex flex-wrap gap-2">
-                          {selectedCampaign.documents.map((doc: any, idx: number) => (
-                            <a
+                          {selectedCampaign.documents.map((doc, idx) => (
+                            <button
                               key={idx}
-                              href={doc.url || '#'}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="px-3 py-2 bg-white/5 hover:bg-white/10 rounded-lg text-sm text-slate-300 flex items-center gap-2 transition-colors"
+                              type="button"
+                              onClick={() => openCampaignDocument(selectedCampaign._id, idx)}
+                              className="px-3 py-2 bg-violet-500/15 hover:bg-violet-500/25 border border-violet-500/30 rounded-lg text-sm text-violet-200 flex items-center gap-2 transition-colors"
                             >
-                              <FiFileText className="w-4 h-4" />
-                              {doc.documentType || `Document ${idx + 1}`}
-                            </a>
+                              <FiEye className="w-4 h-4 shrink-0" />
+                              {docLabel(doc, idx)}
+                            </button>
                           ))}
                         </div>
                       </div>
                     )}
                   </div>
 
-                  {/* Review Note */}
                   <div className="mb-6">
                     <label className="block text-sm font-semibold text-slate-300 mb-2">
-                      Review Note (Optional)
+                      Review note (optional)
                     </label>
                     <textarea
                       value={reviewNote}
@@ -352,9 +479,9 @@ export default function AdminCampaignReview() {
                     />
                   </div>
 
-                  {/* Action Buttons */}
                   <div className="flex gap-3">
                     <button
+                      type="button"
                       onClick={() => handleDecision(selectedCampaign._id, 'approve')}
                       disabled={actionLoading}
                       className="flex-1 py-3 bg-emerald-500 hover:bg-emerald-400 text-white font-bold rounded-xl transition-all disabled:opacity-50 flex items-center justify-center gap-2"
@@ -363,6 +490,7 @@ export default function AdminCampaignReview() {
                       Approve
                     </button>
                     <button
+                      type="button"
                       onClick={() => handleDecision(selectedCampaign._id, 'reject')}
                       disabled={actionLoading}
                       className="flex-1 py-3 bg-rose-500 hover:bg-rose-400 text-white font-bold rounded-xl transition-all disabled:opacity-50 flex items-center justify-center gap-2"

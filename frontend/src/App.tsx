@@ -9,6 +9,7 @@ import ResetPassword from './pages/ResetPassword';
 import Home from './pages/Home';
 import Dashboard from './pages/Dashboard';
 import CreateCampaign from './pages/CreateCampaign';
+import EditCampaign from './pages/EditCampaign';
 import Campaigns from './pages/Campaigns';
 import CampaignDetail from './pages/CampaignDetail';
 import MyCampaigns from './pages/MyCampaigns';
@@ -24,6 +25,7 @@ import AdminContracts from './pages/AdminContracts';
 import Notifications from './pages/Notifications';
 import KYCSubmission from './pages/KYCSubmission';
 import AdminCampaignReview from './pages/AdminCampaignReview';
+import AdminKYCReview from './pages/AdminKYCReview';
 import TransactionHistory from './pages/TransactionHistory';
 import './App.css';
 
@@ -57,6 +59,14 @@ function App() {
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/campaigns" element={<Campaigns />} />
+          <Route
+            path="/campaign/:id/edit"
+            element={
+              <ProtectedRoute allowedRoles={['patient', 'admin']}>
+                <EditCampaign />
+              </ProtectedRoute>
+            }
+          />
           <Route path="/campaign/:id" element={<CampaignDetail />} />
 
           {/* Protected Routes */}
@@ -115,6 +125,7 @@ function App() {
           <Route path="/admin/audit-logs" element={<ProtectedRoute allowedRoles={['admin']}><AdminAuditLogs /></ProtectedRoute>} />
           <Route path="/admin/contracts" element={<ProtectedRoute allowedRoles={['admin']}><AdminContracts /></ProtectedRoute>} />
           <Route path="/admin/campaign-review" element={<ProtectedRoute allowedRoles={['admin']}><AdminCampaignReview /></ProtectedRoute>} />
+          <Route path="/admin/kyc-review" element={<ProtectedRoute allowedRoles={['admin']}><AdminKYCReview /></ProtectedRoute>} />
 
           {/* User Routes */}
           <Route path="/notifications" element={<ProtectedRoute><Notifications /></ProtectedRoute>} />

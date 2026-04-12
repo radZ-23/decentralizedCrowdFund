@@ -4,7 +4,7 @@ import { motion } from "framer-motion";
 import api from "../services/api";
 import {
   FiPlusCircle, FiLayout, FiAlertTriangle, FiCheckCircle,
-  FiShield, FiCode, FiArrowRight, FiSearch
+  FiShield, FiCode, FiArrowRight, FiSearch, FiEdit2,
 } from "react-icons/fi";
 
 interface Campaign {
@@ -268,12 +268,20 @@ export default function MyCampaigns() {
                   </div>
 
                   {/* Card Actions */}
-                  <div className="px-6 py-4 border-t border-white/5 bg-white-[0.02] grid grid-cols-1 group-hover:bg-purple-500/5 transition-colors">
+                  <div className="px-6 py-4 border-t border-white/5 bg-white-[0.02] grid grid-cols-2 gap-2 group-hover:bg-purple-500/5 transition-colors">
                     <button
+                      type="button"
+                      onClick={() => navigate(`/campaign/${campaign._id}/edit`)}
+                      className="px-3 py-2 bg-purple-500/15 hover:bg-purple-500/25 text-purple-200 rounded-lg transition-colors flex items-center justify-center gap-2 text-sm font-medium border border-purple-500/25"
+                    >
+                      <FiEdit2 className="w-4 h-4" /> Edit
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => navigate(`/campaign/${campaign._id}`)}
                       className="px-3 py-2 bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white rounded-lg transition-colors flex items-center justify-center gap-2 text-sm font-medium border border-white/5 w-full"
                     >
-                      <FiArrowRight className="w-4 h-4" /> View Details
+                      <FiArrowRight className="w-4 h-4" /> View
                     </button>
                   </div>
                 </motion.div>

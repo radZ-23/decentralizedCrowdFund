@@ -28,6 +28,7 @@ export default function KYCSubmission() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [loadError, setLoadError] = useState('');
   const [success, setSuccess] = useState('');
 
   // Form state
@@ -46,10 +47,16 @@ export default function KYCSubmission() {
   const fetchKYCStatus = async () => {
     try {
       setLoading(true);
+      setLoadError('');
       const res = await api.get('/api/kyc/status');
       setKycStatus(res.data.data);
     } catch (err: any) {
       console.error('Failed to fetch KYC status:', err);
+      setKycStatus(null);
+      setLoadError(
+        err.response?.data?.message ||
+          'Could not load KYC status. Ensure you are logged in and the API is running.',
+      );
     } finally {
       setLoading(false);
     }
@@ -183,8 +190,25 @@ export default function KYCSubmission() {
           </p>
         </motion.div>
 
+        {loadError && (
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="glass-panel p-6 rounded-3xl border border-rose-500/30 mb-8 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4"
+          >
+            <p className="text-rose-200 text-sm font-medium">{loadError}</p>
+            <button
+              type="button"
+              onClick={() => fetchKYCStatus()}
+              className="px-4 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-white text-sm font-bold border border-white/10 shrink-0"
+            >
+              Retry
+            </button>
+          </motion.div>
+        )}
+
         {/* Status Card */}
-        {kycStatus && (
+        {!loadError && kycStatus && (
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -233,7 +257,7 @@ export default function KYCSubmission() {
         )}
 
         {/* Submission Form */}
-        {kycStatus?.status === 'not_submitted' || kycStatus?.status === 'rejected' ? (
+        {!loadError && (kycStatus?.status === 'not_submitted' || kycStatus?.status === 'rejected') ? (
           <motion.form
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -426,7 +450,7 @@ export default function KYCSubmission() {
               )}
             </button>
           </motion.form>
-        ) : (
+        ) : !loadError && kycStatus && (kycStatus.status === 'pending' || kycStatus.status === 'approved') ? (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -444,7 +468,7 @@ export default function KYCSubmission() {
                 : 'Your documents are being reviewed. This usually takes 24-48 hours.'}
             </p>
           </motion.div>
-        )}
+        ) : null}
       </div>
     </div>
   );

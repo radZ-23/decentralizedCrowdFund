@@ -167,7 +167,17 @@ export default function CreateCampaign() {
         estimatedTreatmentDuration: formData.estimatedTreatmentDuration,
       }));
 
-      data.append("milestones", JSON.stringify(milestones.filter(m => m.description && m.targetAmount > 0)));
+      const targetNum = parseFloat(formData.targetAmount);
+      const normalizedMilestones = normalizeMilestonesForSubmit(milestones, targetNum);
+      if (!normalizedMilestones) {
+        setError(
+          "Step 4 — Add at least one milestone with a description. You can leave ETH amounts empty to split your target evenly across milestones.",
+        );
+        setStep(4);
+        setLoading(false);
+        return;
+      }
+      data.append("milestones", JSON.stringify(normalizedMilestones));
 
       // Send to backend
       await api.post("/api/campaigns", data, {
@@ -198,8 +208,68 @@ export default function CreateCampaign() {
 
   const totalSteps = 4;
 
-  const nextStep = () => setStep(prev => Math.min(prev + 1, totalSteps));
-  const prevStep = () => setStep(prev => Math.max(prev - 1, 1));
+  const nextStep = () => setStep((prev) => Math.min(prev + 1, totalSteps));
+  const prevStep = () => setStep((prev) => Math.max(prev - 1, 1));
+
+  /** Aligns with backend: descriptions required; amounts optional → split campaign target evenly */
+  function normalizeMilestonesForSubmit(
+    ms: Milestone[],
+    campaignTarget: number,
+  ): Milestone[] | null {
+    const withDesc = ms
+      .map((m) => ({
+        description: m.description.trim(),
+        targetAmount: Number(m.targetAmount) || 0,
+      }))
+      .filter((m) => m.description.length > 0);
+    if (withDesc.length === 0) return null;
+    const allAmountsEmpty = withDesc.every((m) => m.targetAmount <= 0);
+    if (allAmountsEmpty) {
+      const n = withDesc.length;
+      const base = campaignTarget / n;
+      let sum = 0;
+      return withDesc.map((m, i) => {
+        if (i < n - 1) {
+          const amt = Math.round(base * 1e6) / 1e6;
+          sum += amt;
+          return { description: m.description, targetAmount: amt };
+        }
+        return {
+          description: m.description,
+          targetAmount: Math.round((campaignTarget - sum) * 1e6) / 1e6,
+        };
+      });
+    }
+    const withAmt = withDesc.filter((m) => m.targetAmount > 0);
+    return withAmt.length > 0 ? withAmt : null;
+  }
+
+  const tryAdvanceStep = () => {
+    setError("");
+    if (step === 1) {
+      if (!formData.title.trim()) {
+        setError("Please enter a campaign title before continuing.");
+        return;
+      }
+      if (!formData.description.trim()) {
+        setError("Please enter a description before continuing.");
+        return;
+      }
+      const t = parseFloat(formData.targetAmount);
+      if (!formData.targetAmount.trim() || Number.isNaN(t) || t <= 0) {
+        setError("Enter a valid target amount greater than 0 (ETH).");
+        return;
+      }
+    }
+    if (step === 3) {
+      const hasDoc = [0, 1, 2, 3].some((i) => files[i] && documentTypes[i]);
+      if (!hasDoc) {
+        setError("Upload at least one document and select its type before continuing.");
+        return;
+      }
+    }
+    nextStep();
+  };
 
   // Step renderers
   const renderStep1 = () => (
@@ -280,7 +350,9 @@ export default function CreateCampaign() {
               )}
             </div>
             {hospitals.length === 0 && !loadingHospitals && (
-              <p className="text-xs text-slate-500 mt-2 ml-1">No verified hospitals available. Enter hospital ID manually if needed.</p>
+              <p className="text-xs text-slate-500 mt-2 ml-1">
+                No eligible hospitals yet (need admin-approved KYC or license verification on a hospital account).
+              </p>
             )}
           </div>
         </div>
@@ -432,7 +504,10 @@ export default function CreateCampaign() {
     <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
       <div className="text-center mb-8">
         <h2 className="text-2xl font-bold text-white">Smart Contract Milestones</h2>
-        <p className="text-slate-400 mt-2">Funds are locked in escrow and released proportionally</p>
+        <p className="text-slate-400 mt-2">Funds are locked in escrow and released per milestone after hospital confirmation.</p>
+        <p className="text-sm text-amber-200/90 mt-3 px-2 leading-relaxed">
+          <strong>Required:</strong> each milestone needs a short description. <strong>ETH amounts</strong> can be left blank — we will split your campaign target evenly. If you enter amounts, each must be &gt; 0 and should add up to your target.
+        </p>
       </div>
 
       <div className="space-y-4">
@@ -575,7 +650,7 @@ export default function CreateCampaign() {
               {step < totalSteps ? (
                 <button
                   type="button"
-                  onClick={nextStep}
+                  onClick={tryAdvanceStep}
                   className="px-8 py-3 bg-white text-slate-900 hover:bg-slate-200 font-bold rounded-xl transition-all shadow-[0_0_20px_rgba(255,255,255,0.2)] flex items-center justify-center gap-2"
                 >
                   Continue <FiArrowRight />

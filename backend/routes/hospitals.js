@@ -9,6 +9,7 @@ const axios = require('axios');
 const { getIO } = require('../utils/socket');
 const { sendHospitalAssignedEmail } = require('../utils/emailService');
 const logger = require('../utils/logger');
+const { isHospitalVerified, verifiedHospitalMongoFilter } = require('../utils/hospitalVerification');
 
 const router = express.Router();
 
@@ -130,16 +131,14 @@ router.get('/pending', authMiddleware, roleMiddleware(['admin']), async (req, re
 });
 
 // @route   GET /api/hospitals/verified
-// @desc    Get all verified hospitals
-// @access  Private (Admin only)
-router.get('/verified', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
+// @desc    Get verified hospitals (admin: full minus password; patient: id/name/email for campaign assignment)
+// @access  Private (Admin, Patient)
+router.get('/verified', authMiddleware, roleMiddleware(['admin', 'patient']), async (req, res) => {
   try {
-    const verifiedHospitals = await User.find({
-      role: 'hospital',
-      'profile.verified': true
-    })
-    .select('-password')
-    .sort({ createdAt: -1 });
+    const isAdmin = req.user.role === 'admin';
+    const verifiedHospitals = await User.find(verifiedHospitalMongoFilter())
+      .select(isAdmin ? '-password' : '_id hospitalName email')
+      .sort({ createdAt: -1 });
 
     res.json({ hospitals: verifiedHospitals });
   } catch (error) {
@@ -389,7 +388,7 @@ router.post('/assign-campaign', authMiddleware, roleMiddleware(['admin']), async
       return res.status(400).json({ error: 'Invalid hospital' });
     }
 
-    if (!hospital.profile.verified) {
+    if (!isHospitalVerified(hospital)) {
       return res.status(400).json({ error: 'Hospital must be verified before assignment' });
     }
 

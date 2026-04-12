@@ -4,7 +4,7 @@ import { motion } from 'framer-motion';
 import { 
   FiLogOut, FiLayout, FiHeart, FiActivity, FiUser, 
   FiPlusCircle, FiList, FiTrendingUp, FiCheckCircle, 
-  FiBriefcase, FiUsers, FiShield, FiLink
+  FiBriefcase, FiUsers, FiShield, FiLink, FiClipboard
 } from 'react-icons/fi';
 import WalletConnectButton from '../components/ui/WalletConnectButton';
 import ThemeToggle from '../components/ui/ThemeToggle';
@@ -76,6 +76,7 @@ export default function Dashboard() {
       cards = [
         { title: 'Browse Campaigns', desc: 'Discover and support medical campaigns', icon: <FiActivity />, link: '/campaigns', color: 'from-blue-500 to-cyan-400' },
         { title: 'My Donations', desc: 'Track your donations and impact', icon: <FiHeart />, link: '/my-donations', color: 'from-pink-500 to-rose-400' },
+        { title: 'KYC verification', desc: 'Submit identity documents for admin review', icon: <FiShield />, link: '/kyc-submission', color: 'from-violet-500 to-fuchsia-400' },
         { title: 'My Profile', desc: 'Update your profile and wallet', icon: <FiUser />, link: '/profile', color: 'from-purple-500 to-indigo-400' },
       ];
     } else if (user.role === 'patient') {
@@ -83,9 +84,11 @@ export default function Dashboard() {
         { title: 'Create Campaign', desc: 'Start a fundraising campaign', icon: <FiPlusCircle />, link: '/create-campaign', color: 'from-emerald-500 to-teal-400' },
         { title: 'My Campaigns', desc: 'Manage your campaigns', icon: <FiList />, link: '/my-campaigns', color: 'from-purple-500 to-fuchsia-400' },
         { title: 'Analytics', desc: 'Track your fundraising progress', icon: <FiTrendingUp />, link: '/analytics', color: 'from-amber-500 to-orange-400' },
+        { title: 'KYC verification', desc: 'Submit identity documents for admin review', icon: <FiShield />, link: '/kyc-submission', color: 'from-violet-500 to-fuchsia-400' },
       ];
     } else if (user.role === 'hospital') {
       cards = [
+        { title: 'KYC verification', desc: 'Submit hospital identity documents', icon: <FiShield />, link: '/kyc-submission', color: 'from-violet-500 to-fuchsia-400' },
         { title: 'Verify Milestones', desc: 'Confirm treatment milestones', icon: <FiCheckCircle />, link: '/milestones', color: 'from-green-500 to-emerald-400' },
         { title: 'Assigned Campaigns', desc: 'View campaigns assigned to you', icon: <FiList />, link: '/my-campaigns', color: 'from-indigo-500 to-blue-400' },
         { title: 'Hospital Info', desc: 'Manage hospital profile', icon: <FiBriefcase />, link: '/hospital-profile', color: 'from-purple-500 to-pink-400' },
@@ -94,7 +97,8 @@ export default function Dashboard() {
       cards = [
         { title: 'User Management', desc: 'Manage all platform users', icon: <FiUsers />, link: '/admin/users', color: 'from-blue-500 to-cyan-400' },
         { title: 'System Dashboard', desc: 'View platform statistics', icon: <FiLayout />, link: '/admin/dashboard', color: 'from-purple-500 to-indigo-400' },
-        { title: 'Audit Logs', desc: 'Review system audit trail', icon: <FiShield />, link: '/admin/audit-logs', color: 'from-amber-500 to-orange-400' },
+        { title: 'KYC review', desc: 'Review documents & approve submissions', icon: <FiShield />, link: '/admin/kyc-review', color: 'from-fuchsia-500 to-pink-400' },
+        { title: 'Audit Logs', desc: 'Review system audit trail', icon: <FiClipboard />, link: '/admin/audit-logs', color: 'from-amber-500 to-orange-400' },
       ];
     }
 
@@ -106,8 +110,16 @@ export default function Dashboard() {
             variants={itemVariants}
             whileHover={{ y: -5, scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
+            role="button"
+            tabIndex={0}
             onClick={() => navigate(card.link)}
-            className="glass-card rounded-2xl p-6 cursor-pointer relative overflow-hidden group"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                navigate(card.link);
+              }
+            }}
+            className="glass-card rounded-2xl p-6 cursor-pointer relative overflow-hidden group focus:outline-none focus-visible:ring-2 focus-visible:ring-purple-500/80"
           >
             {/* Ambient Background Glow */}
             <div className={`absolute -right-8 -top-8 w-32 h-32 bg-gradient-to-br ${card.color} rounded-full blur-[40px] opacity-20 group-hover:opacity-40 transition-opacity duration-500`} />
@@ -158,7 +170,19 @@ export default function Dashboard() {
               <div className="hidden sm:block text-right">
                 <p className="text-sm font-bold text-slate-200">{user.fullName || user.name}</p>
                 <div className="flex justify-end items-center mt-0.5">
-                  <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-purple-500/20 text-purple-300 border border-purple-500/30 uppercase tracking-wider">
+                  <span
+                    className={`inline-flex items-center px-2.5 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider border ${
+                      user.role === 'admin'
+                        ? 'bg-rose-500/15 text-rose-300 border-rose-500/35'
+                        : user.role === 'hospital'
+                          ? 'bg-cyan-500/15 text-cyan-300 border-cyan-500/35'
+                          : user.role === 'donor'
+                            ? 'bg-pink-500/15 text-pink-300 border-pink-500/35'
+                            : user.role === 'patient'
+                              ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/35'
+                              : 'bg-purple-500/20 text-purple-300 border-purple-500/30'
+                    }`}
+                  >
                     {user.role}
                   </span>
                 </div>
@@ -222,8 +246,8 @@ export default function Dashboard() {
                       </svg>
                     </div>
                     <div>
-                      <h3 className="text-xl font-bold text-white">Connected Wallet</h3>
-                      <p className="text-slate-400">Network: Ethereum Mainnet</p>
+                      <h3 className="text-xl font-bold text-white">Connected wallet</h3>
+                      <p className="text-slate-400 text-sm">Network matches your MetaMask / wallet extension (e.g. local Hardhat or testnet).</p>
                     </div>
                   </div>
                   <div className="bg-black/30 border border-white/5 p-4 rounded-xl font-mono text-sm sm:text-base text-indigo-300 break-all">
@@ -247,7 +271,7 @@ export default function Dashboard() {
                         setUser(updatedUser);
                         localStorage.setItem('user', JSON.stringify(updatedUser));
                         try {
-                          await api.put(`/api/auth/profile`, { walletAddress: address });
+                          await api.put('/auth/profile', { walletAddress: address });
                         } catch (err) {
                           console.error("Failed to sync wallet address", err);
                         }

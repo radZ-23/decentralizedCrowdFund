@@ -6,8 +6,15 @@ const { authMiddleware, roleMiddleware } = require('../middleware/auth');
 const AuditLog = require('../models/AuditLog');
 const { ethers } = require('ethers');
 const { sendPasswordResetEmail, sendWelcomeEmail } = require('../utils/emailService');
+const { isHospitalVerified } = require('../utils/hospitalVerification');
 
 const router = express.Router();
+
+function verifiedForClient(user) {
+  if (!user) return false;
+  if (user.role === 'hospital') return isHospitalVerified(user);
+  return user.profile?.verified === true;
+}
 
 const hashResetToken = (token) =>
   crypto.createHash('sha256').update(token).digest('hex');
@@ -30,7 +37,7 @@ router.post('/forgot-password', async (req, res) => {
       user.passwordResetTokenHash = hashResetToken(rawToken);
       user.passwordResetExpires = new Date(Date.now() + 60 * 60 * 1000);
       await user.save();
-      await sendPasswordResetEmail(user.email, rawToken).catch(() => {});
+      await sendPasswordResetEmail(user.email, rawToken).catch(() => { });
     }
 
     res.json({
@@ -163,7 +170,7 @@ router.post('/wallet-login', async (req, res) => {
       details: { method: 'wallet' },
       ipAddress: req.ip,
       status: 'success',
-    }).catch(() => {});
+    }).catch(() => { });
 
     const token = generateToken(user._id, user.email, user.role);
 
@@ -184,7 +191,7 @@ router.post('/wallet-login', async (req, res) => {
         name: user.name,
         role: user.role,
         walletAddress: user.walletAddress,
-        verified: user.profile?.verified,
+        verified: verifiedForClient(user),
       },
     });
   } catch (error) {
@@ -260,6 +267,7 @@ router.post('/signup', async (req, res) => {
         name: newUser.name,
         role: newUser.role,
         walletAddress: newUser.walletAddress,
+        verified: newUser.profile?.verified,
       },
     });
   } catch (error) {
@@ -330,7 +338,7 @@ router.post('/login', async (req, res) => {
         name: user.name,
         role: user.role,
         walletAddress: user.walletAddress,
-        verified: user.profile?.verified,
+        verified: verifiedForClient(user),
       },
     });
   } catch (error) {
@@ -444,7 +452,7 @@ router.post('/verify-wallet', authMiddleware, async (req, res) => {
       entityId: req.user.userId,
       details: { walletAddress, signatureVerified: true },
       status: 'success',
-    }).catch(() => {});
+    }).catch(() => { });
 
     res.json({
       message: 'Wallet verified successfully',
