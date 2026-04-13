@@ -99,6 +99,11 @@ function getProviderAndSigner() {
  * Deploy MedTrustFundEscrow contract with retry logic
  */
 async function deployEscrowContract(patientAddress, hospitalAddress, milestones) {
+  // If a factory contract is configured, use it for cheaper deploys
+  if (process.env.FACTORY_CONTRACT_ADDRESS) {
+    return deployEscrowViaFactory(patientAddress, hospitalAddress, milestones);
+  }
+
   return executeWithRetry(async () => {
     const { signer } = getProviderAndSigner();
     const { abi, bytecode } = loadContractArtifact();
@@ -136,6 +141,80 @@ async function deployEscrowContract(patientAddress, hospitalAddress, milestones)
       contract: deploymentReceipt,
     };
   }, 'DeployEscrowContract');
+}
+
+/**
+ * Deploy escrow via the MedTrustFundFactory contract (cheaper, ~60% gas savings)
+ * Requires FACTORY_CONTRACT_ADDRESS env var to be set.
+ */
+async function deployEscrowViaFactory(patientAddress, hospitalAddress, milestones) {
+  return executeWithRetry(async () => {
+    const { signer } = getProviderAndSigner();
+    const factoryAddress = process.env.FACTORY_CONTRACT_ADDRESS;
+
+    if (!factoryAddress) {
+      throw new Error('FACTORY_CONTRACT_ADDRESS not set — cannot use factory deploy');
+    }
+
+    // Load factory ABI
+    const factoryArtifactPath = path.join(
+      __dirname,
+      '../../hardhat/artifacts/contracts/MedTrustFundFactory.sol/MedTrustFundFactory.json'
+    );
+    if (!fs.existsSync(factoryArtifactPath)) {
+      throw new Error(`Factory artifact not found at ${factoryArtifactPath}. Run 'npx hardhat compile' first.`);
+    }
+    const factoryArtifact = JSON.parse(fs.readFileSync(factoryArtifactPath, 'utf8'));
+
+    const factoryContract = new ethers.Contract(factoryAddress, factoryArtifact.abi, signer);
+
+    const descriptions = milestones.map(m => m.description);
+    const amounts = milestones.map(m => ethers.parseEther(m.targetAmount.toString()));
+
+    console.log(`[Factory] Deploying escrow via factory at ${factoryAddress}`);
+    console.log(`Patient: ${patientAddress}, Hospital: ${hospitalAddress}`);
+    console.log(`Milestones: ${descriptions.length}`);
+
+    const tx = await factoryContract.deployCampaign(
+      patientAddress,
+      hospitalAddress,
+      descriptions,
+      amounts
+    );
+
+    const receipt = await tx.wait();
+
+    // Parse the CampaignDeployed event to get the escrow address
+    const deployEvent = receipt.logs.find(log => {
+      try {
+        const parsed = factoryContract.interface.parseLog(log);
+        return parsed && parsed.name === 'CampaignDeployed';
+      } catch { return false; }
+    });
+
+    let escrowAddress;
+    if (deployEvent) {
+      const parsed = factoryContract.interface.parseLog(deployEvent);
+      escrowAddress = parsed.args.escrowAddress;
+    } else {
+      // Fallback: read latest campaign from factory
+      const count = await factoryContract.campaignCount();
+      const campaign = await factoryContract.campaigns(count - 1n);
+      escrowAddress = campaign.escrowAddress;
+    }
+
+    const { abi } = loadContractArtifact();
+
+    console.log(`[Factory] Escrow deployed at: ${escrowAddress}`);
+    console.log(`[Factory] Transaction hash: ${receipt.hash}`);
+
+    return {
+      contractAddress: escrowAddress,
+      transactionHash: receipt.hash,
+      abi,
+      factoryAddress,
+    };
+  }, 'DeployEscrowViaFactory');
 }
 
 /**
@@ -271,6 +350,7 @@ module.exports = {
   loadContractArtifact,
   getProviderAndSigner,
   deployEscrowContract,
+  deployEscrowViaFactory,
   getContractInstance,
   confirmMilestoneOnChain,
   releaseMilestoneOnChain,
