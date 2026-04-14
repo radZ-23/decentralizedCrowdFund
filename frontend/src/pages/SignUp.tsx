@@ -61,7 +61,7 @@ export default function SignUp() {
     return () => window.removeEventListener("mousemove", handleMouse);
   }, []);
 
-  const handleChange = (e: any) => {
+  const handleChange = (e: { target: { name: string; value: string } }) => {
     const { name, value } = e.target;
     setFormData((prev) => ({
       ...prev,
@@ -69,7 +69,7 @@ export default function SignUp() {
     }));
   };
 
-  const handleSubmit = async (e: any) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError('');
 
@@ -95,8 +95,8 @@ export default function SignUp() {
       );
 
       navigate('/dashboard');
-    } catch (err: any) {
-      setError(err.response?.data?.error || err.message || 'Network error');
+    } catch (err: unknown) {
+      setError((err as { response?: { data?: { error?: string } } }).response?.data?.error || (err as { message?: string }).message || 'Network error');
     } finally {
       setLoading(false);
     }
