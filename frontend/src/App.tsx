@@ -28,6 +28,7 @@ import AdminCampaignReview from './pages/AdminCampaignReview';
 import AdminKYCReview from './pages/AdminKYCReview';
 import TransactionHistory from './pages/TransactionHistory';
 import './App.css';
+import { ScrollToTop, BackToTopButton, ToastProvider, PageShell, RouteProgressBar } from './components/UXEnhancements';
 
 // Initialize socket connection on app load
 initSocket();
@@ -51,7 +52,10 @@ function App() {
   return (
     <ThemeProvider>
     <AuthProvider>
+      <ToastProvider>
       <BrowserRouter>
+        <ScrollToTop />
+        <RouteProgressBar />
         <Routes>
           {/* Public Routes */}
           <Route path="/login" element={<Login />} />
@@ -138,7 +142,9 @@ function App() {
           {/* 404 mapped to Home */}
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>
+        <BackToTopButton />
       </BrowserRouter>
+      </ToastProvider>
     </AuthProvider>
     </ThemeProvider>
   );

@@ -249,3 +249,9 @@
 [style*="transform"], [style*="opacity"] {
   transition-property: color, background-color, border-color;
 }
+
+/* Shimmer animation for skeleton loaders */
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
