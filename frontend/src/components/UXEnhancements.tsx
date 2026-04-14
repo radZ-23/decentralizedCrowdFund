@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 /**
  * UXEnhancements.tsx
  * ─────────────────
@@ -25,7 +26,7 @@ import {
   useCallback,
   createContext,
   useContext,
-  useRef,
+
   type ReactNode,
 } from "react";
 import { useLocation, useNavigate, Link } from "react-router-dom";
@@ -38,7 +39,6 @@ import {
   FiInfo,
   FiHome,
   FiChevronRight,
-  FiSearch,
   FiInbox,
   FiHeart,
   FiShield,
@@ -467,6 +467,8 @@ export function EmptyState({
 const shimmerClass =
   "relative overflow-hidden before:absolute before:inset-0 before:bg-gradient-to-r before:from-transparent before:via-white/5 before:to-transparent before:animate-[shimmer_2s_infinite] before:-translate-x-full";
 
+const SKELETON_WIDTHS = ["92%", "88%", "95%", "85%", "90%", "87%", "93%", "86%"];
+
 export function SkeletonText({
   lines = 3,
   className = "",
@@ -480,7 +482,7 @@ export function SkeletonText({
         <div
           key={i}
           className={`h-3 rounded-full bg-white/5 ${shimmerClass}`}
-          style={{ width: i === lines - 1 ? "60%" : `${85 + Math.random() * 15}%` }}
+          style={{ width: i === lines - 1 ? "60%" : SKELETON_WIDTHS[i % SKELETON_WIDTHS.length] }}
         />
       ))}
     </div>
@@ -631,18 +633,21 @@ export function PageLoadingScreen({
 
 export function RouteProgressBar() {
   const { pathname } = useLocation();
-  const [loading, setLoading] = useState(false);
+  const [loadKey, setLoadKey] = useState(pathname);
+  const visible = loadKey !== pathname;
 
+  // When pathname changes, the mismatch makes `visible` true.
+  // A timeout then syncs loadKey → hides the bar.
   useEffect(() => {
-    setLoading(true);
-    const timeout = setTimeout(() => setLoading(false), 500);
+    const timeout = setTimeout(() => setLoadKey(pathname), 500);
     return () => clearTimeout(timeout);
   }, [pathname]);
 
   return (
     <AnimatePresence>
-      {loading && (
+      {visible && (
         <motion.div
+          key={pathname}
           initial={{ scaleX: 0 }}
           animate={{ scaleX: 0.7 }}
           exit={{ scaleX: 1, opacity: 0 }}

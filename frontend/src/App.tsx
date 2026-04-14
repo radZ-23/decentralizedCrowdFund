@@ -28,7 +28,7 @@ import AdminCampaignReview from './pages/AdminCampaignReview';
 import AdminKYCReview from './pages/AdminKYCReview';
 import TransactionHistory from './pages/TransactionHistory';
 import './App.css';
-import { ScrollToTop, BackToTopButton, ToastProvider, PageShell, RouteProgressBar } from './components/UXEnhancements';
+import { ScrollToTop, BackToTopButton, ToastProvider, RouteProgressBar } from './components/UXEnhancements';
 
 // Initialize socket connection on app load
 initSocket();
