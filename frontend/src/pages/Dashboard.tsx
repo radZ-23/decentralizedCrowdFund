@@ -4,7 +4,7 @@ import { motion } from 'framer-motion';
 import { 
   FiLogOut, FiLayout, FiHeart, FiActivity, FiUser, 
   FiPlusCircle, FiList, FiTrendingUp, FiCheckCircle, 
-  FiBriefcase, FiUsers, FiShield, FiLink, FiClipboard
+  FiBriefcase, FiUsers, FiShield, FiLink, FiClipboard, FiMapPin
 } from 'react-icons/fi';
 import WalletConnectButton from '../components/ui/WalletConnectButton';
 import ThemeToggle from '../components/ui/ThemeToggle';

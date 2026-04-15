@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -6,7 +6,6 @@ import {
   FiNavigation,
   FiPhone,
   FiGlobe,
-  FiClock,
   FiLoader,
   FiAlertCircle,
   FiSearch,
@@ -17,6 +16,7 @@ import {
   FiX,
 } from "react-icons/fi";
 import ThemeToggle from "../components/ui/ThemeToggle";
+import type L from "leaflet";
 
 /* ═══════════════════════════════════════════════════════════════
    Types
@@ -39,6 +39,14 @@ interface Hospital {
 interface UserLocation {
   lat: number;
   lon: number;
+}
+
+interface OverpassElement {
+  id: number;
+  lat?: number;
+  lon?: number;
+  center?: { lat: number; lon: number };
+  tags?: Record<string, string>;
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -92,7 +100,7 @@ async function fetchNearbyHospitals(
   const data = await response.json();
 
   return data.elements
-    .map((el: any) => {
+    .map((el: OverpassElement) => {
       const elLat = el.lat || el.center?.lat;
       const elLon = el.lon || el.center?.lon;
       if (!elLat || !elLon) return null;
@@ -134,8 +142,8 @@ function HospitalMap({
   onSelect: (id: number) => void;
 }) {
   const mapRef = useRef<HTMLDivElement>(null);
-  const mapInstanceRef = useRef<any>(null);
-  const markersRef = useRef<any[]>([]);
+  const mapInstanceRef = useRef<L.Map | null>(null);
+  const markersRef = useRef<L.Marker[]>([]);
 
   useEffect(() => {
     if (!mapRef.current || mapInstanceRef.current) return;
@@ -145,8 +153,7 @@ function HospitalMap({
       const L = (await import("leaflet")).default;
 
       // Fix default icon paths (common Leaflet + bundler issue)
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      delete (L.Icon.Default.prototype as any)._getIconUrl;
+      delete (L.Icon.Default.prototype as unknown as Record<string, unknown>)._getIconUrl;
       L.Icon.Default.mergeOptions({
         iconRetinaUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png",
         iconUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png",
@@ -371,9 +378,12 @@ function HospitalCard({
 
 export default function NearbyHospitals() {
   const navigate = useNavigate();
-  const [userLocation, setUserLocation] = useState<UserLocation | null>(null);
+  const geoSupported = typeof navigator !== "undefined" && "geolocation" in navigator;
+
+  const [userLocation, setUserLocation] = useState<UserLocation | null>(
+    geoSupported ? null : { lat: 19.076, lon: 72.8777 }
+  );
   const [hospitals, setHospitals] = useState<Hospital[]>([]);
-  const [filteredHospitals, setFilteredHospitals] = useState<Hospital[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -384,48 +394,45 @@ export default function NearbyHospitals() {
 
   // Get user location
   useEffect(() => {
-    if (!navigator.geolocation) {
-      setError("Geolocation is not supported by your browser");
-      setLoading(false);
-      return;
-    }
+    if (!geoSupported) return;
 
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         setUserLocation({ lat: pos.coords.latitude, lon: pos.coords.longitude });
       },
-      (err) => {
-        // Default to Mumbai if denied
-        console.warn("Geolocation denied, defaulting to Mumbai:", err.message);
+      (geoErr) => {
+        console.warn("Geolocation denied, defaulting to Mumbai:", geoErr.message);
         setUserLocation({ lat: 19.076, lon: 72.8777 });
         setError("Location access denied — showing results near Mumbai. Allow location for accurate results.");
       },
       { enableHighAccuracy: true, timeout: 10000 }
     );
-  }, []);
+  }, [geoSupported]);
 
   // Fetch hospitals when location or radius changes
   useEffect(() => {
     if (!userLocation) return;
 
-    setLoading(true);
-    setError("");
+    let cancelled = false;
 
     fetchNearbyHospitals(userLocation.lat, userLocation.lon, radiusKm)
       .then((results) => {
+        if (cancelled) return;
         setHospitals(results);
-        setFilteredHospitals(results);
         setLoading(false);
       })
-      .catch((err) => {
-        console.error(err);
+      .catch((fetchErr) => {
+        if (cancelled) return;
+        console.error(fetchErr);
         setError("Failed to fetch nearby hospitals. Please try again.");
         setLoading(false);
       });
+
+    return () => { cancelled = true; };
   }, [userLocation, radiusKm]);
 
-  // Filter hospitals by search and type
-  useEffect(() => {
+  // Filter hospitals by search and type (derived state — no effect needed)
+  const filteredHospitals = useMemo(() => {
     let filtered = hospitals;
 
     if (typeFilter !== "all") {
@@ -441,7 +448,7 @@ export default function NearbyHospitals() {
       );
     }
 
-    setFilteredHospitals(filtered);
+    return filtered;
   }, [searchTerm, typeFilter, hospitals]);
 
   const handleSelect = useCallback((id: number) => {
