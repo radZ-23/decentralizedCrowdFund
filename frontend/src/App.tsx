@@ -30,6 +30,8 @@ import TransactionHistory from './pages/TransactionHistory';
 import './App.css';
 import NearbyHospitals from './pages/NearbyHospitals';
 import { ScrollToTop, BackToTopButton, ToastProvider, RouteProgressBar } from './components/UXEnhancements';
+import EthConverter from './pages/EthConverter';
+import AIExplainer from './pages/AIExplainer';
 
 // Initialize socket connection on app load
 initSocket();
@@ -64,6 +66,8 @@ function App() {
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/campaigns" element={<Campaigns />} />
+          <Route path="/eth-converter" element={<EthConverter />} />
+          <Route path="/ai-verification" element={<AIExplainer />} />
           <Route
             path="/campaign/:id/edit"
             element={
