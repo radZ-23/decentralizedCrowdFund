@@ -28,6 +28,7 @@ import AdminCampaignReview from './pages/AdminCampaignReview';
 import AdminKYCReview from './pages/AdminKYCReview';
 import TransactionHistory from './pages/TransactionHistory';
 import './App.css';
+import NearbyHospitals from './pages/NearbyHospitals';
 import { ScrollToTop, BackToTopButton, ToastProvider, RouteProgressBar } from './components/UXEnhancements';
 
 // Initialize socket connection on app load
@@ -135,7 +136,7 @@ function App() {
           <Route path="/notifications" element={<ProtectedRoute><Notifications /></ProtectedRoute>} />
           <Route path="/kyc-submission" element={<ProtectedRoute><KYCSubmission /></ProtectedRoute>} />
           <Route path="/transactions" element={<ProtectedRoute><TransactionHistory /></ProtectedRoute>} />
-
+          <Route path="/nearby-hospitals" element={<ProtectedRoute><NearbyHospitals /></ProtectedRoute>} />
           {/* Root mapped to Home */}
           <Route path="/" element={<Home />} />
 

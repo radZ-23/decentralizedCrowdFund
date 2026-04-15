@@ -78,6 +78,7 @@ export default function Dashboard() {
         { title: 'My Donations', desc: 'Track your donations and impact', icon: <FiHeart />, link: '/my-donations', color: 'from-pink-500 to-rose-400' },
         { title: 'KYC verification', desc: 'Submit identity documents for admin review', icon: <FiShield />, link: '/kyc-submission', color: 'from-violet-500 to-fuchsia-400' },
         { title: 'My Profile', desc: 'Update your profile and wallet', icon: <FiUser />, link: '/profile', color: 'from-purple-500 to-indigo-400' },
+        { title: 'Nearby Hospitals', desc: 'Find hospitals near you on the map', icon: <FiMapPin />, link: '/nearby-hospitals', color: 'from-red-500 to-rose-400' },
       ];
     } else if (user.role === 'patient') {
       cards = [
@@ -85,6 +86,7 @@ export default function Dashboard() {
         { title: 'My Campaigns', desc: 'Manage your campaigns', icon: <FiList />, link: '/my-campaigns', color: 'from-purple-500 to-fuchsia-400' },
         { title: 'Analytics', desc: 'Track your fundraising progress', icon: <FiTrendingUp />, link: '/analytics', color: 'from-amber-500 to-orange-400' },
         { title: 'KYC verification', desc: 'Submit identity documents for admin review', icon: <FiShield />, link: '/kyc-submission', color: 'from-violet-500 to-fuchsia-400' },
+        { title: 'Nearby Hospitals', desc: 'Find hospitals near you on the map', icon: <FiMapPin />, link: '/nearby-hospitals', color: 'from-red-500 to-rose-400' },
       ];
     } else if (user.role === 'hospital') {
       cards = [
@@ -92,6 +94,7 @@ export default function Dashboard() {
         { title: 'Verify Milestones', desc: 'Confirm treatment milestones', icon: <FiCheckCircle />, link: '/milestones', color: 'from-green-500 to-emerald-400' },
         { title: 'Assigned Campaigns', desc: 'View campaigns assigned to you', icon: <FiList />, link: '/my-campaigns', color: 'from-indigo-500 to-blue-400' },
         { title: 'Hospital Info', desc: 'Manage hospital profile', icon: <FiBriefcase />, link: '/hospital-profile', color: 'from-purple-500 to-pink-400' },
+        { title: 'Nearby Hospitals', desc: 'Find hospitals near you on the map', icon: <FiMapPin />, link: '/nearby-hospitals', color: 'from-red-500 to-rose-400' },
       ];
     } else if (user.role === 'admin') {
       cards = [
@@ -99,6 +102,7 @@ export default function Dashboard() {
         { title: 'System Dashboard', desc: 'View platform statistics', icon: <FiLayout />, link: '/admin/dashboard', color: 'from-purple-500 to-indigo-400' },
         { title: 'KYC review', desc: 'Review documents & approve submissions', icon: <FiShield />, link: '/admin/kyc-review', color: 'from-fuchsia-500 to-pink-400' },
         { title: 'Audit Logs', desc: 'Review system audit trail', icon: <FiClipboard />, link: '/admin/audit-logs', color: 'from-amber-500 to-orange-400' },
+        { title: 'Nearby Hospitals', desc: 'Find hospitals near you on the map', icon: <FiMapPin />, link: '/nearby-hospitals', color: 'from-red-500 to-rose-400' },
       ];
     }
 
